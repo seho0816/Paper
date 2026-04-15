@@ -6,24 +6,15 @@ from tree_sitter import Language, Parser
 from dotenv import load_dotenv
 
 # --- 1. API 및 DB 셋업 ---
-load_dotenv(override=True, encoding='utf-8-sig')
-import os
-print(f"현재 작업 디렉토리: {os.getcwd()}")
-print(f".env 파일 존재 여부: {os.path.exists('.env')}")
+load_dotenv()
 api_key = os.environ.get("GEMINI_API_KEY")
-
-print("--- 🔍 파이썬이 읽어들인 .env 파일 내부 모습 ---")
-try:
-    with open('.env', 'rb') as f:
-        print(f.read())
-except Exception as e:
-    print(f"파일 읽기 에러: {e}")
-print("--------------------------------------------------")
 
 if not api_key:
     print("⚠️ 오류: .env 파일에 'GEMINI_API_KEY'가 없습니다!")
     exit()
 genai.configure(api_key=api_key)
+
+
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
