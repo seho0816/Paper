@@ -5,7 +5,6 @@ import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
 # --- 1. API 및 DB 셋업 ---
-# API key 삭제
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
