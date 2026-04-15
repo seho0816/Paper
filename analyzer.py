@@ -3,9 +3,27 @@ import chromadb
 import google.generativeai as genai
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
+from dotenv import load_dotenv
 
 # --- 1. API 및 DB 셋업 ---
-genai.configure(api_key="AIzaSyCwOx1tLel-4xsHMhlc8ThMzHjw8QNCGtE")
+load_dotenv(override=True, encoding='utf-8-sig')
+import os
+print(f"현재 작업 디렉토리: {os.getcwd()}")
+print(f".env 파일 존재 여부: {os.path.exists('.env')}")
+api_key = os.environ.get("GEMINI_API_KEY")
+
+print("--- 🔍 파이썬이 읽어들인 .env 파일 내부 모습 ---")
+try:
+    with open('.env', 'rb') as f:
+        print(f.read())
+except Exception as e:
+    print(f"파일 읽기 에러: {e}")
+print("--------------------------------------------------")
+
+if not api_key:
+    print("⚠️ 오류: .env 파일에 'GEMINI_API_KEY'가 없습니다!")
+    exit()
+genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,15 +41,24 @@ PY_LANGUAGE = Language(tspython.language())
 parser = Parser()
 parser.language = PY_LANGUAGE
 
-def extract_all_functions(node, source_code, functions_list):
-    """트리를 재귀적으로 탐색하며 모든 함수/메서드 단위를 추출합니다."""
-    if node.type == "function_definition":
-        func_code = source_code[node.start_byte:node.end_byte]
-        functions_list.append(func_code)
+def extract_all_functions(node, source_code, chunks_list):
+    """트리를 탐색하며 함수, 클래스, 주요 글로벌 블록을 모두 추출합니다."""
     
-    # 자식 노드들도 계속 탐색 (클래스 안의 메서드 등을 찾기 위함)
+    # 1. 함수나 클래스인 경우 통째로 잘라서 저장
+    if node.type in ["function_definition", "class_definition"]:
+        chunk_code = source_code[node.start_byte:node.end_byte]
+        chunks_list.append(chunk_code)
+        
+    # 2. if __name__ == "__main__": 같은 글로벌 조건문 블록도 잘라서 저장
+    elif node.type == "if_statement":
+        # 최상단(module 바로 아래)에 있는 if문만 잡기 위한 간단한 필터링
+        if node.parent and node.parent.type == "module":
+            chunk_code = source_code[node.start_byte:node.end_byte]
+            chunks_list.append(chunk_code)
+
+    # 3. 자식 노드들도 계속 탐색
     for child in node.children:
-        extract_all_functions(child, source_code, functions_list)
+        extract_all_functions(child, source_code, chunks_list)
 
 def parse_and_chunk(source_code):
     """코드를 파싱하여 함수 단위 청크 리스트를 반환합니다."""
