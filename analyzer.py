@@ -1,6 +1,6 @@
 import os
 import chromadb
-import google.generativeai as genai
+from google import genai
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 from dotenv import load_dotenv
@@ -12,17 +12,15 @@ api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
     print("⚠️ 오류: .env 파일에 'GEMINI_API_KEY'가 없습니다!")
     exit()
-genai.configure(api_key=api_key)
+genai_client = genai.Client(api_key=api_key)
 
-
-model = genai.GenerativeModel('gemini-2.5-flash')
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(current_dir, "rag_db")
 
 try:
-    client = chromadb.PersistentClient(path=db_path)
-    collection = client.get_collection(name="python_security_lessons")
+    db_clint = chromadb.PersistentClient(path=db_path)
+    collection = db_clint.get_collection(name="python_security_lessons")
 except Exception as e:
     print(f"DB 연결 실패: {e}")
     exit()
@@ -139,7 +137,7 @@ while True:
         )
         
         prompt = f"""
-        당신은 세계 최고의 파이썬 보안 전문가입니다. 
+        당신은 파이썬 보안 전문가입니다. 
         사용자가 입력한 코드 전체를 분석하세요.
         
         Hallucination 방지
@@ -157,8 +155,12 @@ while True:
         """
         
         try:
-            response = model.generate_content(prompt)
+            response = genai_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
             result_text = response.text
+            
 
             if "미등록 패턴" in result_text or "취약점이 발견되지 않았습니다" in result_text:
                 print("\n================ [AI 분석 결과] ================")
