@@ -58,26 +58,38 @@ def parse_and_chunk(source_code):
 
 # --- 3. 메인 분석 루프 ---
 print("=== RAG + Tree-sitter 파이썬 보안 분석 시스템 ===")
-print("분석할 코드를 입력하세요. 입력을 마치려면 'END'를, 종료하려면 'exit'을 입력하세요.")
+print("분석할 파일의 경로를 입력하세요. (예: bandit_test/CWE-338_CWE-343test.py)")
+print("종료하려면 'exit'을 입력하세요.")
 
 while True:
-    print("\n[코드 입력 대기 중...]")
-    user_lines = []
+    print("\n[파일 경로 입력 대기 중...]")
+    target_file = input("경로: ").strip()
     
-    while True:
-        line = input()
-        if line.strip().upper() == 'END':
-            break
-        if line.strip().lower() == 'exit':
-            print("프로그램을 종료합니다.")
-            exit()
-        user_lines.append(line)
-    
-    user_code = "\n".join(user_lines)
-    if not user_code.strip():
+    if target_file.lower() == 'exit':
+        print("프로그램을 종료합니다.")
+        break
+        
+    if not target_file:
         continue
 
-    print("\n[1/3] ✂️ Tree-sitter로 코드 청킹(Chunking) 진행 중...")
+    # 1. 파일 존재 여부 확인
+    if not os.path.exists(target_file):
+        print(f"⚠️ 오류: '{target_file}' 파일을 찾을 수 없습니다. 경로를 다시 확인해주세요.")
+        continue
+
+    # 2. 파일 읽어오기
+    try:
+        with open(target_file, 'r', encoding='utf-8') as f:
+            user_code = f.read()
+    except Exception as e:
+        print(f"⚠️ 파일 읽기 오류: {e}")
+        continue
+
+    if not user_code.strip():
+        print("⚠️ 오류: 파일이 비어있습니다.")
+        continue
+
+    print(f"\n[1/3] ✂️ Tree-sitter로 '{target_file}' 코드 청킹(Chunking) 진행 중...")
     chunks = parse_and_chunk(user_code)
     
     # 함수가 없는 단순 스크립트라면 전체 코드를 하나의 청크로 사용
@@ -93,8 +105,6 @@ while True:
         print("=== 🛠️ [디버그] Tree-sitter 파싱 결과 확인 ===")
         for i, chunk in enumerate(chunks):
             print(f"▶️ [청크 {i+1}]")
-            
-            # 보기 좋게 청크의 각 줄 앞에 들여쓰기(| )를 추가해서 출력합니다.
             chunk_lines = chunk.split('\n')
             for line in chunk_lines:
                 print(f"  | {line}")
@@ -171,6 +181,25 @@ while True:
                 print("\n================ [AI 분석 결과] ================")
                 print(result_text)
                 print("================================================\n")
+                
+                # --- 👇 여기서부터 파일 저장 코드 추가 👇 ---
+                import datetime
+                import os
+                
+                os.makedirs("result", exist_ok=True)
+                now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                # 파일명에 분석한 소스코드의 파일명도 함께 넣어주면 구분하기 훨씬 좋습니다!
+                base_name = os.path.basename(target_file).replace('.py', '')
+                filename = os.path.join("result", f"result_gemini_{base_name}_{now}.txt")
+                
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(f"=== RAG + Gemini 보안 분석 리포트 ({now}) ===\n")
+                    f.write(f"=== 분석 대상 파일: {target_file} ===\n\n")
+                    f.write(result_text)
+                
+                print(f"✅ 분석 결과가 '{filename}' 파일에 성공적으로 저장되었습니다!")
+                # --- 👆 여기까지 파일 저장 코드 끝 👆 ---
+
         except Exception as e:
             print(f"오류 발생: {e}")
     else:
