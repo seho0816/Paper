@@ -21,9 +21,16 @@ while True:
         print(f"⚠️ 오류: '{target_file}' 파일을 찾을 수 없습니다. 경로를 다시 확인해주세요.")
         continue
 
-    # 현재 시간을 가져와서 파일명 생성
+    # 1. result 폴더가 없으면 자동으로 생성
+    os.makedirs("result", exist_ok=True)
+
+    # 2. 원본 파일명 추출 및 저장할 파일명 조립
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"result_bandit_{now}.txt"
+    # 예: bandit_test/CWE-942_testcode.py -> CWE-942_testcode 로 변환
+    base_name = os.path.basename(target_file).replace('.py', '') 
+    
+    # 최종 파일명: result/result_bandit_CWE-942_testcode_20260422_151045.txt
+    filename = os.path.join("result", f"result_bandit_{base_name}_{now}.txt")
 
     # Bandit 명령어 조립 및 실행
     print(f"\n🔍 Bandit 스캔 시작: {target_file}")
@@ -32,7 +39,6 @@ while True:
     command = f"bandit -f txt -o {filename} {target_file}"
     
     try:
-        # 터미널 창에도 진행 상황을 보여주기 위해 약간 수정
         print("분석 중...")
         os.system(command)
         
@@ -40,10 +46,9 @@ while True:
         print(f"✅ 분석 결과가 '{filename}' 파일에 성공적으로 저장되었습니다!")
         print("==============================================================\n")
         
-        # 파일 내용을 읽어서 터미널에도 살짝 보여주기 (analyzer와 비슷한 느낌을 위해)
+        # 파일 내용을 읽어서 터미널에도 살짝 보여주기
         with open(filename, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            # 결과가 너무 길면 핵심 내용(Test results:) 부분만 보여주기
             show_lines = False
             print("--- [리포트 요약] ---")
             for line in lines:
