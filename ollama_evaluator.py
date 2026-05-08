@@ -9,20 +9,25 @@ def get_memory_usage():
     return process.memory_info().rss / (1024 * 1024)
 
 def evaluate(model_name, code_content, rag_context, ground_truth_cwes):
-    # 💡 CoT(생각의 사슬) 유도 및 취약점 탐지 우선순위를 명시한 고도화 프롬프트
     prompt = f"""
-    당신은 파이썬 보안 코드 분석기입니다.
-    아래 제공된 코드를 분석하여 가장 치명적인 핵심 취약점을 찾아내세요.
-    
-    [응답 규칙]
-    1. 코드를 1~2문장으로 자유롭게 분석하되, '호출 횟수 제한(Rate Limit) 누락(CWE-770)' 같은 표면적인 설정 미비보다, '인가/인증 누락(CWE-285, 287)', '인젝션' 등 프로그램의 핵심 논리 결함을 최우선적으로 탐지하세요.
-    2. 분석이 끝난 후, 답변의 **가장 마지막**에 반드시 아래 태그 형식으로 최종 취약점 번호 1개만 감싸서 출력하세요.
+    You are a professional Python Security Code Analyzer. 
+    Analyze the [Source Code] based on the [Security Knowledge Base] to identify the most critical vulnerability.
+
+    [Critical Instructions (Instruction Following)]
+    1. **Strict Hallucination Control:** If the [Security Knowledge Base] is empty or clearly irrelevant to the code, you MUST respond ONLY with: "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다."
+    2. **Python-Specific Verification:** Prioritize the 'Python Note' in the knowledge base (e.g., random vs secrets, Flask-CORS misconfigurations).
+    3. **Logical over Physical (Anti-Bias):** Prioritize identifying core logic flaws (CWE-285, 287) over simple resource limits (CWE-770, 400).
+    4. **Context-Aware Patching:** Do not simply copy the DB example. Provide a brief explanation of how to patch the vulnerability within the original code's context.
+
+    [Output Rules (In Korean)]
+    1. **분석 결과 (Reasoning):** 취약점이 발견된 구체적인 코드 위치와 취약점의 원인, 그리고 패치 원리를 2~3문장 내외의 한국어로 설명하세요.
+    2. **최종 태그:** 답변의 **가장 마지막**에 반드시 아래 태그 형식으로 식별된 CWE 번호 1개만 출력하세요.
        형식: <CWE>CWE-XXX</CWE>
-    
-    [참고 지식(DB)]
-    {rag_context if rag_context else "일치하는 보안 지식 없음"}
-    
-    [분석할 코드]
+
+    [참고 지식(Security Knowledge Base)]
+    {rag_context if rag_context else "No relevant knowledge found."}
+
+    [분석할 코드(Source Code)]
     {code_content}
     """
     
