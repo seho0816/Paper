@@ -31,12 +31,17 @@ except Exception as e:
 mitre_json_path = os.path.join(current_dir, "knowledge", "mitre_cwe_official.json")
 
 try:
-    with open(mitre_json_path, "r", encoding="utf-8") as f:
+    with open(mitre_json_path, "r", encoding="utf-8-sig") as f:
         mitre_cwe_db = json.load(f)
+
     print(f"✅ MITRE CWE JSON 로드 완료: {mitre_json_path}")
-    
+    print("MITRE JSON key 목록:", list(mitre_cwe_db.keys()))
+
 except FileNotFoundError:
     print(f"⚠️ MITRE CWE JSON 파일을 찾을 수 없습니다: {mitre_json_path}")
+    mitre_cwe_db = {}
+except json.JSONDecodeError as e:
+    print(f"⚠️ MITRE CWE JSON 형식 오류: {e}")
     mitre_cwe_db = {}
 except Exception as e:
     print(f"⚠️ MITRE CWE JSON 로드 실패: {e}")
@@ -144,7 +149,7 @@ def extract_cwes_from_metadata_value(cwe_value):
 
 def build_mitre_context(candidate_cwes, mitre_cwe_db):
     """
-    ChromaDB 검색 결과에서 나온 후보 CWE를 기준으로
+    검색 결과에서 나온 일부 CWE 후보를 기준으로
     MITRE JSON 공식 지식을 exact lookup하여 프롬프트용 문자열로 구성합니다.
     """
     sections = []
@@ -171,7 +176,11 @@ Python 관련 메모: {info.get("python_note", "")}
 """.strip())
 
     if not sections:
-        return "현재 검색된 후보 CWE 중 MITRE JSON에 등록된 공식 기준 정보가 없습니다."
+        return (
+            "MITRE JSON에 등록된 공식 기준 정보는 없습니다. "
+            "단, Python 취약/개선 예시 DB가 사용자 코드와 명확히 일치하면 "
+            "기존 DB를 기준으로 분석을 계속하세요."
+        )
 
     return "\n\n".join(sections)
 
@@ -255,12 +264,9 @@ while True:
 
     print("[2/3] 🔍 DB에서 각 함수별로 취약점 패턴 검색 중...")
     retrieved_contexts_set = set() # 중복 방지용 Set
-    all_candidate_cwes = set()         # MITRE JSON 조회용 후보 CWE
-    strong_candidate_cwes = set()    # MITRE JSON 조회용 확실한 후보
-
+    mitre_candidate_cwes = set()  # MITRE JSON 조회용 후보 CWE
     DISTANCE_THRESHOLD = 1.8
-    STRONG_MARGIN = 0.20
-    STRONG_DISTANCE_LIMIT = 1.15
+    MITRE_TOP_K_PER_CHUNK = 2
     
     db_size = collection.count()
     if db_size == 0:
@@ -271,44 +277,33 @@ while True:
 
     # 각 조각난 함수별로 DB 검색 수행
     for i, chunk in enumerate(chunks):
+    # 1. 현재 청크에 대해 쿼리 실행
         results = collection.query(query_texts=[chunk], n_results=k)
 
-    if results['metadatas'] and results['metadatas'][0]:
-        distances = results['distances'][0]
-        metadatas = results['metadatas'][0]
-
-        # 현재 청크에서 가장 가까운 거리
-        min_dist = min(distances) if distances else None
+    # 2. 결과 처리 로직이 반드시 for 루프 '안쪽'에 있어야 합니다!
+        if results['metadatas'] and results['metadatas'][0]:
+            distances = results['distances'][0]
+            metadatas = results['metadatas'][0]
 
         for j in range(len(metadatas)):
             dist = distances[j]
 
+            # 설정한 유사도 거리(DISTANCE_THRESHOLD)보다 가까운 것만 처리
             if dist < DISTANCE_THRESHOLD:
-                doc = metadatas[j].get('full_text', '')
+                doc = metadatas[j]['full_text']
                 retrieved_contexts_set.add(doc)
 
                 cwe_value = metadatas[j].get('cwe')
                 found_cwes = extract_cwes_from_metadata_value(cwe_value)
 
-                # 전체 후보는 디버그용으로만 수집
-                all_candidate_cwes.update(found_cwes)
+                # ✅ 이제 i+1이 1, 2, 3, 4 순서대로 찍히게 됩니다.
+                print(f"  📍 [청크 {i+1}] CWE={cwe_value} 유사도 거리={dist:.4f}")
 
-                # 강한 후보만 MITRE JSON 조회용으로 수집
-                is_strong_candidate = (
-                    min_dist is not None
-                    and dist <= min_dist + STRONG_MARGIN
-                    and dist <= STRONG_DISTANCE_LIMIT
-                )
-
-                if is_strong_candidate:
-                    strong_candidate_cwes.update(found_cwes)
-
-                print(
-                    f"  📍 [청크 {i+1}] CWE={cwe_value} "
-                    f"MITRE후보={found_cwes} "
-                    f"strong={is_strong_candidate} "
-                    f"유사도 거리={dist:.4f}"
-                )
+                # MITRE JSON 조회 후보 추가
+                if j < MITRE_TOP_K_PER_CHUNK:
+                    for cwe in found_cwes:
+                        if cwe in mitre_cwe_db:
+                            mitre_candidate_cwes.add(cwe)
 
     valid_docs_count = len(retrieved_contexts_set)
 
@@ -319,30 +314,30 @@ while True:
     [f"--- [Python 취약/개선 예시 {idx+1}] ---\n{doc}" for idx, doc in enumerate(retrieved_contexts_set)]
 )
 
-        mitre_context = build_mitre_context(strong_candidate_cwes, mitre_cwe_db)
+        mitre_context = build_mitre_context(mitre_candidate_cwes, mitre_cwe_db)
 
         print("\n=== 📚 [디버그] MITRE JSON 공식 기준 조회 결과 ===")
-        print(f"전체 후보 CWE: {sorted(all_candidate_cwes)}")
-        print(f"강한 후보 CWE: {sorted(strong_candidate_cwes)}")
+        print(f"MITRE 조회 후보 CWE: {sorted(mitre_candidate_cwes)}")
         print(mitre_context)
         print("================================================\n")
-
+        
         prompt = f"""
         당신은 파이썬 보안 전문가입니다. 
         사용자가 입력한 코드 전체를 분석하세요.
         
         Hallucination 방지
-        1. 제공된 [MITRE 공식 CWE 기준]과 [Python 취약/개선 예시 DB]를 복합적으로 참조하여 분석하세요.
-        2. [Python 취약/개선 예시 DB]가 비어있거나 사용자 코드와 무관하다면 "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다." 라고만 답변하세요.
+        1. 제공된 [참고 지식(DB)]들을 복합적으로 참조하여 분석하세요.
+        2. [참고 지식(DB)]이 비어있거나 무관하다면 "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다." 라고만 답변하세요.
         3. 취약점이 발견되더라도, DB에 있는 해결책 예제 코드를 그대로 복사하지 마세요.
         4. 반드시 [사용자 입력 전체 코드]의 문맥을 유지하면서, 취약점만 안전하게 패치한 '사용자 맞춤형 개선 코드'를 작성하세요. 개선 코드는 함수명을 변경하지 마세요.
         5. 수정된 코드와 함께 관련 CWE 번호 및 패치 원리를 설명하세요.
         6. 사용자 입력 코드에서 취약점이 발견된 코드는 개별 항목을 만들어서 취약 코드를 똑같이 적어주세요.
 
         [지식 사용 규칙]
-        1. MITRE 공식 CWE 기준은 CWE 번호, 공식명, 상위/관련 CWE, 최종 CWE 판단 기준에 우선 사용하세요.
+        1. MITRE 공식 CWE 기준은 CWE 번호, 공식명, 상위/관련 CWE, 최종 CWE 판단 기준을 보강하는 데 사용하세요.
         2. Python 취약/개선 예시 DB는 Python 코드 패턴 탐지와 사용자 맞춤형 개선 코드 작성에 사용하세요.
-        3. MITRE 기준과 Python 예시가 다르게 보일 경우, 최종 CWE 판단은 MITRE 기준을 우선하되, Python 코드 패턴과 직접 원인을 함께 고려하세요.
+        3. MITRE 공식 기준 정보가 없는 후보 CWE라도, Python 취약/개선 예시 DB가 사용자 코드와 명확히 일치하면 분석을 중단하지 말고 기존 DB를 기준으로 분석하세요.
+        4. MITRE 공식 기준은 보조 기준이며, 사용자 코드와 직접 관련 없는 MITRE 항목을 최종 CWE로 단정하지 마세요.
 
         [CWE 분류 우선순위 규칙]
         1. 참고 지식에 여러 CWE가 포함되어 있을 경우, 사용자 코드와 가장 직접적으로 일치하는 참고 지식의 CWE를 우선 후보로 삼으세요.
@@ -383,6 +378,7 @@ while True:
 
         **[MITRE 공식 CWE 기준]**
         {mitre_context}
+
 
         **[참고 지식(DB)]**
         {retrieved_context}
