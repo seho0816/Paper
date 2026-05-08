@@ -1,0 +1,28 @@
+{
+  "CWE-338": {
+    "cwe": "CWE-338",
+    "source": "MITRE",
+    "source_url": "https://cwe.mitre.org/data/definitions/338.html",
+    "official_title": "Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)",
+    "abstraction": "Base",
+    "vulnerability_mapping": "ALLOWED",
+    "summary_ko": "보안상 중요한 문맥에서 암호학적으로 강하지 않은 PRNG를 사용하는 취약점이다.",
+    "mitigation_ko": "보안 토큰, 세션 ID, 인증 코드, 키 생성에는 암호학적으로 안전한 난수 생성기를 사용한다.",
+    "parent_cwe": ["CWE-330"],
+    "related_cwe": ["CWE-337", "CWE-340"],
+    "python_note": "Python에서 보안 토큰 생성에 random 모듈을 사용하면 CWE-338과 관련된다. PRNG seed가 시스템 시간처럼 예측 가능하면 CWE-337도 고려하고, PRNG가 아닌 시간 기반 식별자 생성이면 CWE-340도 고려한다."
+  },
+  "CWE-942": {
+    "cwe": "CWE-942",
+    "source": "MITRE",
+    "source_url": "https://cwe.mitre.org/data/definitions/942.html",
+    "official_title": "Permissive Cross-domain Security Policy with Untrusted Domains",
+    "abstraction": "Variant",
+    "vulnerability_mapping": "ALLOWED",
+    "summary_ko": "웹 클라이언트 보호 메커니즘인 CSP 또는 cross-domain policy에 신뢰할 수 없는 도메인을 포함하여, 웹 클라이언트가 해당 도메인과 통신할 수 있도록 허용하는 취약점이다.",
+    "mitigation_ko": "CSP 또는 cross-domain policy는 제한적으로 정의해야 하며, wildcard 사용을 피하고 신뢰할 수 있는 도메인만 명시적으로 허용해야 한다.",
+    "parent_cwe": ["CWE-183", "CWE-863", "CWE-923"],
+    "related_cwe": ["CWE-668", "CWE-79"],
+    "python_note": "Python Flask 환경에서는 Flask-CORS 설정에서 origins='*' 또는 resources에 origins='*'를 사용하거나, supports_credentials=True와 함께 신뢰할 수 없는 Origin을 허용하는 경우 CWE-942와 관련될 수 있다. 인증 정보가 포함되는 API에서는 반드시 신뢰할 수 있는 Origin 화이트리스트만 허용해야 한다."
+  }
+}
