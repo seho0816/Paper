@@ -4,8 +4,6 @@ import re
 import time
 from google import genai
 from dotenv import load_dotenv
-
-# 공통 설정 및 RAG 엔진만 가져옵니다
 from config import TEST_DIR
 from rag_engine import RAGEngine
 
@@ -17,7 +15,6 @@ if not GEMINI_API_KEY:
     print("❌ 에러: .env 파일에 GEMINI_API_KEY가 없습니다!")
     exit()
 
-# 질문자님의 애널라이저와 똑같은 최신 SDK 방식입니다!
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # 💡 2. 사용할 Gemini 모델 지정

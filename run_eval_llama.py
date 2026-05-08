@@ -3,13 +3,12 @@ import datetime
 import re
 from config import TEST_DIR
 from rag_engine import RAGEngine
-from ollama_evaluator import evaluate
+from ollama_evaluator import evaluate 
 
-# 💡 이 파일에서 테스트할 모델 이름만 딱 지정해 주면 됩니다!
 TARGET_MODEL = 'llama3.2'
 
 def main():
-    print(f"=== 🚀 [{TARGET_MODEL}] 전용 자동 평가 시스템 시작 ===")
+    print(f"=== 🚀 [{TARGET_MODEL}] 자동 평가 시스템 (Branch: feature/eval) ===")
     rag = RAGEngine()
     RESULT_DIR = 'result_integrated'
     
@@ -24,13 +23,13 @@ def main():
     model_stats = {'Correct': 0, 'Incorrect': 0, 'total_time': 0, 'logs': []}
     total_files = len(test_files)
     
-    print(f"\n⏳ [{TARGET_MODEL}] 모델 평가 진행 중... (총 {total_files}개 파일)")
+    print(f"\n⏳ 평가 진행 중... (Dataset: {TEST_DIR})")
     
     for idx, filename in enumerate(test_files, start=1):
         file_path = os.path.join(TEST_DIR, filename)
         
         progress = (idx / total_files) * 100
-        print(f"  ▶ [{idx}/{total_files}] ({progress:.1f}%) '{filename}' 분석 중... ", end='', flush=True)
+        print(f"  ▶ [{idx}/{total_files}] ({progress:.1f}%) '{filename}'... ", end='', flush=True)
         
         # 파일명에서 3~4자리 숫자를 찾아 정답 추출
         matches = re.findall(r'\d{3,4}', filename)
@@ -54,12 +53,12 @@ def main():
             print(f"✅ 정답 ({result['inference_time']}s)")
         else:
             model_stats['Incorrect'] += 1
-            # 오답일 경우 터미널에 AI가 뭐라고 대답했는지 바로 보여줌 (디버깅용)
-            print(f"❌ 오답 ({result['inference_time']}s) -> 예측: {result['prediction']}")
+            # 💡 [핵심] Qwen처럼 오답일 경우 터미널에 AI가 뭐라고 대답했는지 원본 텍스트를 보여줍니다!
+            print(f"❌ 오답 ({result['inference_time']}s) -> AI대답: {result['raw_response']}")
             
         model_stats['total_time'] += result['inference_time']
         
-        log_str = f"📄 {filename} | 정답: {ground_truth_cwes} | AI 예측: {result['prediction']} 👉 {result['eval_result']} | {result['inference_time']}s"
+        log_str = f"📄 {filename} | 정답: {ground_truth_cwes} | 예측: {result['prediction']} | {result['eval_result']}"
         model_stats['logs'].append(log_str)
 
     # 💡 파일 이름이 겹치지 않게 모델명을 넣어 리포트 저장
@@ -90,7 +89,7 @@ def main():
         for log in model_stats['logs']:
             rf.write(log + "\n")
 
-    print(f"\n✅ 평가 완료! 결과 리포트가 '{report_filename}'에 저장되었습니다.")
+    print(f"\n✅ [{TARGET_MODEL}] 평가 완료! 결과 리포트가 '{report_filename}'에 저장되었습니다.")
 
 if __name__ == "__main__":
     main()
