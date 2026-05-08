@@ -1,0 +1,22 @@
+============================================================
+📊 [gemini-1.5-pro] CWE 식별 정확도(Accuracy) 평가 리포트
+📁 총 평가 파일: 9개 | 🕒 일시: 2026-05-06 15:43
+============================================================
+
+| Model Name | Accuracy | Correct | Incorrect | Avg Time/File |
+|---|---|---|---|---|
+| gemini-1.5-pro | **0.0%** | 0 | 9 | 0.22s |
+
+============================================================
+📝 개별 파일 분석 상세 로그
+============================================================
+
+📄 CWE-117,532_Test.py | 정답: ['CWE-117', 'CWE-532'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-117', 'CWE-532'] vs Pred:UNKNOWN) | 0.43s
+📄 CWE-285_test.py | 정답: ['CWE-285'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-285'] vs Pred:UNKNOWN) | 0.19s
+📄 CWE-287_test.py | 정답: ['CWE-287'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-287'] vs Pred:UNKNOWN) | 0.19s
+📄 CWE-338_CWE-343test.py | 정답: ['CWE-338', 'CWE-343'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-338', 'CWE-343'] vs Pred:UNKNOWN) | 0.19s
+📄 CWE-400_test.py | 정답: ['CWE-400'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-400'] vs Pred:UNKNOWN) | 0.2s
+📄 CWE-611_test.py | 정답: ['CWE-611'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-611'] vs Pred:UNKNOWN) | 0.2s
+📄 CWE-770test.py | 정답: ['CWE-770'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-770'] vs Pred:UNKNOWN) | 0.18s
+📄 CWE-798_test.py | 정답: ['CWE-798'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-798'] vs Pred:UNKNOWN) | 0.18s
+📄 CWE-942_testcode.py | 정답: ['CWE-942'] | AI 예측: UNKNOWN 👉 FP (오답 - GT:['CWE-942'] vs Pred:UNKNOWN) | 0.19s
