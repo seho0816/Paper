@@ -380,12 +380,12 @@ while True:
         {mitre_context}
 
 
-        **[참고 지식(DB)]**
+        [참고 지식(Security Knowledge Base)]
         {retrieved_context}
-        
-        **[사용자 입력 전체 코드]**
+
+        [분석할 코드(Source Code)]
         {user_code}
-        """
+         """
         
         try:
             response = genai_client.models.generate_content(
