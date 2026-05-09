@@ -106,28 +106,24 @@ while True:
         )
         
         prompt = f"""
-        You are a professional Python Security Expert. 
-        Analyze the [Source Code] based on the [Security Knowledge Base] and provide a detailed security report and patch.
+        당신은 파이썬 보안 전문가입니다. 
+        사용자가 입력한 코드 전체를 분석하세요.
+        
+        Hallucination 방지
+        1. 제공된 [참고 지식(DB)]들을 복합적으로 참조하여 분석하세요.
+        2. [참고 지식(DB)]이 비어있거나 무관하다면 "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다." 라고만 답변하세요.
+        3. 취약점이 발견되더라도, DB에 있는 해결책 예제 코드를 그대로 복사하지 마세요.
+        4. 반드시 [사용자 입력 전체 코드]의 문맥을 유지하면서, 취약점만 안전하게 패치한 '사용자 맞춤형 개선 코드'를 작성하세요.
+        5. 수정된 코드와 함께 관련 CWE 번호 및 패치 원리를 설명하세요.
+        6. 사용자 입력 코드에서 취약점이 발견된 코드는 개별 항목을 만들어서 취약 코드를 똑같이 적어주세요.
+        7. 답변은 반드시 '한국어'로 작성해주세요.
 
-        [Critical Instructions]
-        1. **Strict Hallucination Control:** If the [Security Knowledge Base] is irrelevant, respond ONLY with: "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다."
-        2. **Logic over Resources (Anti-Bias):** Prioritize identifying core logic flaws (CWE-285, 287) over simple resource limits (CWE-770, 400).
-        3. **Python-Specific Verification:** Focus on specific Python library misuse (e.g., random vs secrets) mentioned in the knowledge base.
-        4. **Secure Patching:** Provide a 'Customized Patch Code' that maintains the original code's context but fixes the vulnerability. Do not simply copy the DB example.
-
-        [Response Format (In Korean)]
-        1. **취약점 분석:** 취약한 코드 위치를 특정하고, 그 원인을 한국어로 설명하세요.
-        2. **취약한 코드:** 해당 부분의 코드를 그대로 복사하여 보여주세요.
-        3. **개선된 코드 (Secure Patch):** 취약점이 해결된 전체 혹은 부분 코드를 제시하세요.
-        4. **패치 원리:** 왜 이렇게 수정했는지 관련 CWE 번호와 함께 한국어로 상세히 설명하세요.
-        5. **최종 태그:** 답변의 마지막에 식별된 CWE 번호를 태그 형식으로 출력하세요. (예: <CWE>CWE-XXX</CWE>)
-
-        [참고 지식(Security Knowledge Base)]
+        **[참고 지식(DB)]**
         {retrieved_context}
-
-        [분석할 코드(Source Code)]
+        
+        **[사용자 입력 전체 코드]**
         {user_code}
-         """
+        """
         
         try:
             # 👇 여기서 구글 API 대신 로컬 Ollama를 호출합니다! 👇
