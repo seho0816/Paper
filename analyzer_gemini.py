@@ -376,6 +376,10 @@ while True:
         - 최종 CWE로 판단한 이유
         - 관련 CWE를 최종 CWE로 선택하지 않은 이유
 
+        [자동 채점을 위한 추가 규칙]
+        마지막으로, 당신이 판단한 최종 CWE 번호를 반드시 <CWE>CWE-XXX</CWE> 형태의 태그로 감싸서 답변 맨 마지막에 단 하나만 출력하세요. (예: <CWE>CWE-798</CWE>) 
+        취약점이 없다면 <CWE>None</CWE>을 출력하세요.
+
         **[MITRE 공식 CWE 기준]**
         {mitre_context}
 

@@ -1,11 +1,13 @@
 import os
+import json
+import re
 import chromadb
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 import datetime
-import ollama  # 구글 genai 대신 로컬 ollama 라이브러리 사용!
+import ollama
 
-# --- 1. DB 셋업 (API 키 필요 없음!) ---
+# --- 1. DB 셋업 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(current_dir, "rag_db")
 
@@ -16,75 +18,121 @@ except Exception as e:
     print(f"DB 연결 실패: {e}")
     exit()
 
-# --- 2. 🌳 트리시터 셋업 ---
+# --- 1-1. MITRE CWE 공식 JSON 로드  ---
+mitre_json_path = os.path.join(current_dir, "knowledge", "mitre_cwe_official.json")
+try:
+    with open(mitre_json_path, "r", encoding="utf-8-sig") as f:
+        mitre_cwe_db = json.load(f)
+    print(f"✅ MITRE CWE JSON 로드 완료")
+except Exception as e:
+    print(f"⚠️ MITRE CWE JSON 로드 실패: {e}")
+    mitre_cwe_db = {}
+
+# --- 2. 🌳 트리시터 셋업  ---
 PY_LANGUAGE = Language(tspython.language())
 parser = Parser()
 parser.language = PY_LANGUAGE
 
-def extract_all_functions(node, source_code, chunks_list):
-    if node.type in ["function_definition", "class_definition"]:
-        chunk_code = source_code[node.start_byte:node.end_byte]
+def node_text(node, source_bytes):
+    return source_bytes[node.start_byte:node.end_byte].decode("utf-8")
+
+def is_main_guard(node, source_bytes):
+    text = node_text(node, source_bytes)
+    return node.type == "if_statement" and "__name__" in text and "__main__" in text
+
+def extract_module_context(root_node, source_bytes):
+    module_parts = []
+    for child in root_node.children:
+        if child.type in ["function_definition", "class_definition", "decorated_definition"]:
+            continue
+        if child.type == "if_statement" and is_main_guard(child, source_bytes):
+            continue
+        if child.type in ["import_statement", "import_from_statement", "assignment", "expression_statement", "augmented_assignment", "comment"]:
+            text = node_text(child, source_bytes).strip()
+            if text:
+                module_parts.append(text)
+    if not module_parts:
+        return None
+    return "# [MODULE_CONTEXT]\n" + "\n\n".join(module_parts)
+
+def extract_all_functions(node, source_bytes, chunks_list):
+    if node.type == "decorated_definition":
+        chunk_code = node_text(node, source_bytes)
         chunks_list.append(chunk_code)
+        return
+    if node.type in ["function_definition", "class_definition"]:
+        chunk_code = node_text(node, source_bytes)
+        chunks_list.append(chunk_code)
+        return
     elif node.type == "if_statement":
         if node.parent and node.parent.type == "module":
-            chunk_code = source_code[node.start_byte:node.end_byte]
-            chunks_list.append(chunk_code)
+            if is_main_guard(node, source_bytes):
+                chunk_code = node_text(node, source_bytes)
+                chunks_list.append(chunk_code)
+                return
     for child in node.children:
-        extract_all_functions(child, source_code, chunks_list)
+        extract_all_functions(child, source_bytes, chunks_list)
 
 def parse_and_chunk(source_code):
-    tree = parser.parse(bytes(source_code, "utf8"))
-    functions = []
-    extract_all_functions(tree.root_node, source_code, functions)
-    return functions
+    source_bytes = source_code.encode("utf-8")
+    tree = parser.parse(source_bytes)
+    chunks = []
+    module_context = extract_module_context(tree.root_node, source_bytes)
+    if module_context:
+        chunks.append(module_context)
+    extract_all_functions(tree.root_node, source_bytes, chunks)
+    return chunks
+
+# --- 2-1. 지식 가공 헬퍼 함수 ---
+def extract_cwes_from_metadata_value(cwe_value):
+    if not cwe_value: return []
+    return re.findall(r"CWE-\d+", str(cwe_value))
+
+def build_mitre_context(candidate_cwes, mitre_cwe_db):
+    sections = []
+    for cwe in sorted(candidate_cwes):
+        info = mitre_cwe_db.get(cwe)
+        if not info: continue
+        parent_cwe = ", ".join(info.get("parent_cwe", [])) or "없음"
+        related_cwe = ", ".join(info.get("related_cwe", [])) or "없음"
+        sections.append(f"""
+--- [MITRE 공식 기준: {cwe}] ---
+공식 요약: {info.get("summary_ko", "")}
+공식 완화 방향: {info.get("mitigation_ko", "")}
+상위 CWE: {parent_cwe}
+관련 CWE: {related_cwe}
+Python 관련 메모: {info.get("python_note", "")}
+""".strip())
+    if not sections: return "MITRE JSON에 등록된 공식 기준 정보는 없습니다."
+    return "\n\n".join(sections)
+
 
 # --- 3. 메인 분석 루프 ---
-# 변경점 1: 터미널 출력 문구 변경
 print("=== RAG + Tree-sitter 로컬 보안 분석 (Qwen 2.5 Coder) ===")
-print("분석할 파일의 경로를 입력하세요. (예: bandit_test/CWE-338_CWE-343test.py)")
-print("종료하려면 'exit'을 입력하세요.")
 
 while True:
     print("\n[파일 경로 입력 대기 중...]")
-    target_file = input("경로: ").strip()
-    
-    if target_file.lower() == 'exit':
-        print("프로그램을 종료합니다.")
-        break
-        
-    if not target_file:
-        continue
-
-    if not os.path.exists(target_file):
-        print(f"⚠️ 오류: '{target_file}' 파일을 찾을 수 없습니다. 경로를 다시 확인해주세요.")
-        continue
+    target_file = input("경로 (종료 'exit'): ").strip()
+    if target_file.lower() == 'exit': break
+    if not target_file or not os.path.exists(target_file): continue
 
     try:
         with open(target_file, 'r', encoding='utf-8') as f:
             user_code = f.read()
     except Exception as e:
-        print(f"⚠️ 파일 읽기 오류: {e}")
-        continue
+        print(f"⚠️ 파일 읽기 오류: {e}"); continue
 
-    if not user_code.strip():
-        continue
-
-    print(f"\n[1/3] ✂️ Tree-sitter로 '{target_file}' 코드 청킹(Chunking) 진행 중...")
+    print(f"\n[1/3] ✂️ Tree-sitter로 '{target_file}' 코드 청킹 진행 중...")
     chunks = parse_and_chunk(user_code)
-    
-    if not chunks:
-        chunks = [user_code]
-    
-    print("[2/3] 🔍 DB에서 각 함수별로 취약점 패턴 검색 중...")
+    if not chunks: chunks = [user_code]
+
+    print("[2/3] 🔍 DB에서 취약점 패턴 검색 중...")
     retrieved_contexts_set = set()
-    DISTANCE_THRESHOLD = 1.5 
+    mitre_candidate_cwes = set()
+    DISTANCE_THRESHOLD = 1.8
     
     db_size = collection.count()
-    if db_size == 0:
-        print("⚠️ DB가 비어있습니다. 데이터를 먼저 추가해주세요.")
-        continue
-        
-    k = min(3, db_size)
+    k = min(7, db_size)
 
     for i, chunk in enumerate(chunks):
         results = collection.query(query_texts=[chunk], n_results=k)
@@ -92,49 +140,58 @@ while True:
             distances = results['distances'][0]
             metadatas = results['metadatas'][0]
             for j in range(len(metadatas)):
-                dist = distances[j]
-                if dist < DISTANCE_THRESHOLD:
+                if distances[j] < DISTANCE_THRESHOLD:
                     doc = metadatas[j]['full_text']
                     retrieved_contexts_set.add(doc)
+                    found_cwes = extract_cwes_from_metadata_value(metadatas[j].get('cwe'))
+                    if j < 2: # 상위 2개만 MITRE 후보로
+                        for cwe in found_cwes:
+                            if cwe in mitre_cwe_db: mitre_candidate_cwes.add(cwe)
 
-    valid_docs_count = len(retrieved_contexts_set)
-
-    if valid_docs_count > 0:
-        # 변경점 2: 진행 상황 문구 변경
-        print(f"\n[3/3] 🧠 {valid_docs_count}개의 고유 지식을 바탕으로 Qwen 2.5 Coder 정밀 분석을 시작합니다...")
+    if len(retrieved_contexts_set) > 0:
+        print(f"\n[3/3] 🧠 지식 결합 및 Qwen 2.5 Coder 정밀 분석 시작...")
         
         retrieved_context = "\n\n".join(
-            [f"--- [참고 지식 {idx+1}] ---\n{doc}" for idx, doc in enumerate(retrieved_contexts_set)]
+            [f"--- [Python 취약/개선 예시 {idx+1}] ---\n{doc}" for idx, doc in enumerate(retrieved_contexts_set)]
         )
-        
-        prompt = f"""
-        당신은 파이썬 보안 전문가입니다. 
-        사용자가 입력한 코드 전체를 분석하세요.
-        
-        Hallucination 방지
-        1. 제공된 [참고 지식(DB)]들을 복합적으로 참조하여 분석하세요.
-        2. [참고 지식(DB)]이 비어있거나 무관하다면 "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다." 라고만 답변하세요.
-        3. 취약점이 발견되더라도, DB에 있는 해결책 예제 코드를 그대로 복사하지 마세요.
-        4. 반드시 [사용자 입력 전체 코드]의 문맥을 유지하면서, 취약점만 안전하게 패치한 '사용자 맞춤형 개선 코드'를 작성하세요.
-        5. 수정된 코드와 함께 관련 CWE 번호 및 패치 원리를 설명하세요.
-        6. 사용자 입력 코드에서 취약점이 발견된 코드는 개별 항목을 만들어서 취약 코드를 똑같이 적어주세요.
-        7. 답변은 반드시 '한국어'로 명확하게 작성해주세요.
+        mitre_context = build_mitre_context(mitre_candidate_cwes, mitre_cwe_db)
 
-        **[참고 지식(DB)]**
+        # 💡 [핵심] 로컬 모델 전용 템플릿 강제 프롬프트
+        prompt = f"""당신은 파이썬 보안 코드 분석 전문가입니다.
+        아래 [참고 지식]을 바탕으로 [분석 대상 코드]의 취약점을 분석하세요.
+
+        [핵심 지시사항]
+        1. 복붙 금지: DB 예제 코드를 그대로 복사하지 마세요. 반드시 [분석 대상 코드]의 문맥을 유지하면서 패치하세요.
+        2. 무관함 판단: 참고 지식과 관련이 없으면 억지로 찾지 말고 취약점 없음으로 판단하세요.
+        3. 정확한 식별: 여러 취약점 중 코드에서 발생한 가장 '직접적인 원인' 하나를 최종 CWE로 선택하세요.
+        4. 양식 준수: 당신의 답변은 반드시 아래의 [출력 템플릿] 형태를 100% 똑같이 따라서 작성해야 합니다. 다른 말은 덧붙이지 마세요.
+
+        [참고 지식 (MITRE 및 DB)]
+        {mitre_context}
+
         {retrieved_context}
-        
-        **[사용자 입력 전체 코드]**
+
+        [분석 대상 코드]
         {user_code}
-        """
+
+        =========================================
+        [출력 템플릿] (이 양식을 복사해서 빈칸을 채우세요)
+
+        ▶ 취약점 분석 및 원리:
+        (여기에 한국어로 코드의 문제점과 패치 원리 설명)
+
+        ▶ 맞춤형 개선 코드:
+        ```python
+        (여기에 기존 코드를 안전하게 수정한 전체 코드 작성)
+
+        ▶ 최종 판단 CWE:(여기에 태그 작성)
+        [자동 채점을 위한 추가 규칙 - 필수]
+        마지막으로, 당신이 판단한 최종 CWE 번호를 반드시 <CWE>CWE-XXX</CWE> 형태의 태그로 감싸서 답변 맨 마지막에 단 하나만 출력하세요. (예: <CWE>CWE-798</CWE>)
+        취약점이 없다면 <CWE>None</CWE>을 출력하세요.
+         """
         
         try:
-            # 변경점 3: 호출하는 모델명을 'qwen2.5-coder'로 변경!
-            response = ollama.chat(model='qwen2.5-coder', messages=[
-                {
-                    'role': 'user',
-                    'content': prompt,
-                },
-            ])
+            response = ollama.chat(model='qwen2.5-coder', messages=[{'role': 'user', 'content': prompt}])
             result_text = response['message']['content']
 
             if "미등록 패턴" in result_text or "취약점이 발견되지 않았습니다" in result_text:
@@ -149,8 +206,6 @@ while True:
                 os.makedirs("result", exist_ok=True)
                 now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 base_name = os.path.basename(target_file).replace('.py', '')
-                
-                # 변경점 4: 파일명과 리포트 제목에 Qwen 명시
                 filename = os.path.join("result", f"result_ollama_qwen2.5_{base_name}_{now}.txt")
                 
                 with open(filename, "w", encoding="utf-8") as f:
@@ -158,11 +213,11 @@ while True:
                     f.write(f"=== 분석 대상 파일: {target_file} ===\n\n")
                     f.write(result_text)
                 
-                print(f"✅ 분석 결과가 '{filename}' 파일에 성공적으로 저장되었습니다!")
+                print(f"✅ 분석 결과가 '{filename}' 파일에 저장되었습니다!")
 
         except Exception as e:
-            print(f"오류 발생 (Ollama가 실행 중인지 확인하세요): {e}")
+            print(f"오류 발생 (Ollama 실행 확인): {e}")
     else:
         print("\n================ [AI 분석 결과] ================")
-        print("DB 내에 일치하는 위협 패턴이 없어 분석을 건너뜁니다. (안전하거나 미등록된 패턴)")
+        print("DB 내에 일치하는 위협 패턴이 없어 분석을 건너뜁니다.")
         print("================================================\n")

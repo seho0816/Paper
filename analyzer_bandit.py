@@ -36,7 +36,7 @@ while True:
     print(f"\n🔍 Bandit 스캔 시작: {target_file}")
     
     # os.system 대신 os.popen을 사용하여 화면에도 출력하고 파일에도 저장
-    command = f"bandit -f txt -o {filename} {target_file}"
+    command = f'bandit -f txt -o "{filename}" "{target_file}"'
     
     try:
         print("분석 중...")

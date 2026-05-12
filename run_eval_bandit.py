@@ -6,7 +6,6 @@ import subprocess
 import json
 from config import TEST_DIR
 
-# 💡 Bandit은 AI가 아니므로 RAG나 evaluator가 필요 없습니다!
 TOOL_NAME = 'Bandit (SAST)'
 
 def evaluate_with_bandit(file_path, ground_truth_cwes):
