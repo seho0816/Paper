@@ -11,7 +11,7 @@ def get_memory_usage():
 def evaluate(model_name, code_content, rag_context, ground_truth_cwes):
     # 💡 친구의 디테일한 프롬프트 + 나의 자동 채점 태그 지시
     prompt = f"""
-        당신은 파이썬 보안 전문가입니다. 
+        당신은 파이썬 보안 전문가입니vi다. 
         사용자가 입력한 코드 전체를 분석하세요.
         
         Hallucination 방지

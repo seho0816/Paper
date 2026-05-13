@@ -4,28 +4,27 @@ import re
 import time
 import subprocess
 import json
+import csv
 from config import TEST_DIR
 
 TOOL_NAME = 'Bandit (SAST)'
 
 def evaluate_with_bandit(file_path, ground_truth_cwes):
     start_time = time.time()
+    predicted_cwes = []
     
     try:
-        # 💡 [핵심] 파이썬 내장 기능을 이용해 백그라운드에서 bandit 명령어를 실행합니다.
-        # -f json: 결과를 읽기 쉽게 JSON 형태로 뽑아달라는 옵션
-        # -q: 쓸데없는 로그 끄기
+        # Bandit 명령어를 백그라운드에서 실행 (JSON 포맷으로 결과 받기)
         result = subprocess.run(
             ['bandit', '-r', file_path, '-f', 'json', '-q'], 
             capture_output=True, 
             text=True
         )
         
-        # Bandit이 만들어낸 JSON 결과물 읽기
+        # 결과 JSON 파싱
         bandit_output = json.loads(result.stdout)
         
-        predicted_cwes = []
-        # Bandit이 찾은 취약점 목록에서 CWE 번호만 쏙쏙 뽑아냅니다.
+        # CWE 번호 추출
         for issue in bandit_output.get('results', []):
             cwe_info = issue.get('issue_cwe', {})
             if 'id' in cwe_info:
@@ -35,25 +34,24 @@ def evaluate_with_bandit(file_path, ground_truth_cwes):
         predicted_cwes = list(set(predicted_cwes))
         
     except Exception as e:
-        predicted_cwes = []
         print(f"  [Error] Bandit 실행 중 에러: {e}")
 
     inference_time = round(time.time() - start_time, 2)
     
-    # 💡 채점 로직: Bandit이 찾은 CWE 중 하나라도 정답지에 있으면 정답(TP)!
+    # 예측 결과를 문자열로 변환 (없으면 None)
+    pred_str = "/".join(predicted_cwes) if predicted_cwes else "None"
+    
+    # 채점 로직: 정답이 여러 개일 수 있으므로 교집합 확인 / 정답이 None이면 예측도 None이어야 함
     is_correct = False
-    for pred_cwe in predicted_cwes:
-        if pred_cwe in ground_truth_cwes:
-            is_correct = True
-            matched_cwe = pred_cwe
-            break
-            
-    if is_correct:
-        eval_result = f'TP (정답: {matched_cwe} 발견)'
-        pred_str = str(predicted_cwes)
+    if ground_truth_cwes == ["None"] and pred_str == "None":
+        is_correct = True  # 패치된 코드를 안전하다고 판별한 경우
     else:
-        pred_str = str(predicted_cwes) if predicted_cwes else "None"
-        eval_result = f'FP (오답 - GT:{ground_truth_cwes} vs Pred:{pred_str})'
+        for pred_cwe in predicted_cwes:
+            if pred_cwe in ground_truth_cwes:
+                is_correct = True
+                break
+                
+    eval_result = 'TP' if is_correct else 'FP'
         
     return {
         'prediction': pred_str, 
@@ -62,8 +60,8 @@ def evaluate_with_bandit(file_path, ground_truth_cwes):
     }
 
 def main():
-    print(f"=== 🚀 [{TOOL_NAME}] 전용 자동 평가 시스템 시작 ===")
-    RESULT_DIR = 'result_integrated'
+    print(f"=== 🚀 [{TOOL_NAME}] 논문용 데이터 수집 평가 시스템 시작 ===")
+    RESULT_DIR = 'result_int'
     
     if not os.path.exists(RESULT_DIR): os.makedirs(RESULT_DIR)
 
@@ -73,8 +71,9 @@ def main():
         return
 
     model_stats = {'Correct': 0, 'Incorrect': 0, 'total_time': 0, 'logs': []}
-    total_files = len(test_files)
+    csv_data = []
     
+    total_files = len(test_files)
     print(f"\n⏳ [{TOOL_NAME}] 검사 진행 중... (총 {total_files}개 파일)")
     
     for idx, filename in enumerate(test_files, start=1):
@@ -83,56 +82,67 @@ def main():
         progress = (idx / total_files) * 100
         print(f"  ▶ [{idx}/{total_files}] ({progress:.1f}%) '{filename}' 분석 중... ", end='', flush=True)
         
-        matches = re.findall(r'\d{3,4}', filename)
-        ground_truth_cwes = [f"CWE-{m}" for m in matches]
+        matches = re.findall(r'CWE-\d{3,4}', filename, re.IGNORECASE)
+        ground_truth_cwes = matches if matches else ["None"]
         
-        if not ground_truth_cwes:
-            print("⚠️ 무시됨 (CWE 번호 없음)")
-            continue
-            
-        # 💡 AI 대신 Bandit 평가 함수 호출!
+        # Bandit 평가 실행
         result = evaluate_with_bandit(file_path, ground_truth_cwes)
         
-        if 'TP' in result['eval_result']:
+        gt_str = "/".join(ground_truth_cwes)
+        match_ox = 'O' if result['eval_result'] == 'TP' else 'X'
+        
+        # 터미널 간략 출력
+        if match_ox == 'O':
             model_stats['Correct'] += 1
-            print(f"✅ 정답 ({result['inference_time']}s)")
+            print(f"✅ 정답 (판정: {match_ox} | 시간: {result['inference_time']}s)")
         else:
             model_stats['Incorrect'] += 1
-            print(f"❌ 오답 ({result['inference_time']}s) -> 찾은 취약점: {result['prediction']}")
+            print(f"❌ 오답 (판정: {match_ox} | 정답: {gt_str} 👉 예측: {result['prediction']} | 시간: {result['inference_time']}s)")
             
         model_stats['total_time'] += result['inference_time']
         
-        log_str = f"📄 {filename} | 정답: {ground_truth_cwes} | Bandit 예측: {result['prediction']} 👉 {result['eval_result']} | {result['inference_time']}s"
+        csv_data.append({
+            'Model': 'Bandit',
+            'Filename': filename,
+            'Ground_Truth': gt_str,
+            'Prediction': result['prediction'],
+            'Match': match_ox,
+            'Time_s': result['inference_time'],
+            'Memory_MB': 'CLI'
+        })
+        
+        log_str = f"📄 {filename} | 정답: {gt_str:<10} | 예측: {result['prediction']:<10} | 판정: {match_ox} | 시간: {result['inference_time']}s"
         model_stats['logs'].append(log_str)
 
-    report_filename = os.path.join(RESULT_DIR, f'Eval_Bandit_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
+    now_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     
+    # 1. 텍스트 리포트 저장
+    report_filename = os.path.join(RESULT_DIR, f'Eval_Bandit_{now_str}.txt')
     with open(report_filename, mode='w', encoding='utf-8') as rf:
         rf.write("=" * 60 + "\n")
-        rf.write(f"📊 [{TOOL_NAME}] CWE 식별 정확도(Accuracy) 평가 리포트\n")
-        rf.write(f"📁 총 평가 파일: {len(test_files)}개 | 🕒 일시: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+        rf.write(f"📊 [{TOOL_NAME}] CWE 식별 정확도 평가 리포트\n")
         rf.write("=" * 60 + "\n\n")
         
-        rf.write("| Model Name | Accuracy | Correct | Incorrect | Avg Time/File |\n")
-        rf.write("|---|---|---|---|---|\n")
-
         correct = model_stats['Correct']
-        incorrect = model_stats['Incorrect']
-        total = correct + incorrect
+        accuracy = (correct / total_files * 100) if total_files > 0 else 0
+        avg_time = round(model_stats['total_time'] / total_files, 2) if total_files > 0 else 0
         
-        accuracy = (correct / total * 100) if total > 0 else 0
-        avg_time = round(model_stats['total_time'] / total, 2) if total > 0 else 0
+        rf.write(f"| Accuracy: {accuracy:.1f}% | Correct: {correct} | Incorrect: {total_files-correct} | Avg Time: {avg_time}s |\n\n")
         
-        rf.write(f"| {TOOL_NAME} | **{accuracy:.1f}%** | {correct} | {incorrect} | {avg_time}s |\n\n")
-
-        rf.write("=" * 60 + "\n")
-        rf.write("📝 개별 파일 분석 상세 로그\n")
-        rf.write("=" * 60 + "\n\n")
-
-        for log in model_stats['logs']:
+        rf.write("📝 상세 로그\n")
+        rf.write("-" * 60 + "\n")
+        for log in model_stats['logs']: 
             rf.write(log + "\n")
 
-    print(f"\n✅ 평가 완료! 결과 리포트가 '{report_filename}'에 저장되었습니다.")
+    # 2. 엑셀용 CSV 데이터 저장
+    csv_filename = os.path.join(RESULT_DIR, f'Data_Bandit_{now_str}.csv')
+    with open(csv_filename, mode='w', encoding='utf-8-sig', newline='') as cf:
+        writer = csv.DictWriter(cf, fieldnames=['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Memory_MB'])
+        writer.writeheader()
+        writer.writerows(csv_data)
+
+    print(f"\n✅ 평가 완료! 요약 리포트: '{report_filename}'")
+    print(f"📊 논문용 CSV 데이터가 '{csv_filename}'에 저장되었습니다!")
 
 if __name__ == "__main__":
     main()
