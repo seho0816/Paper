@@ -10,7 +10,7 @@ TARGET_MODEL = 'llama3.2'
 def main():
     print(f"=== 🚀 [{TARGET_MODEL}] 자동 평가 시스템 (Branch: feature/eval) ===")
     rag = RAGEngine()
-    RESULT_DIR = 'result_integrated'
+    RESULT_DIR = 'result_int'
     
     if not os.path.exists(RESULT_DIR): os.makedirs(RESULT_DIR)
 
