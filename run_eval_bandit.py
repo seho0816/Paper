@@ -60,7 +60,7 @@ def evaluate_with_bandit(file_path, ground_truth_cwes):
     }
 
 def main():
-    print(f"=== 🚀 [{TOOL_NAME}] 논문용 데이터 수집 평가 시스템 시작 ===")
+    print(f"=== 🚀 [{TOOL_NAME}] 데이터 수집 평가 시스템 시작 ===")
     RESULT_DIR = 'result_int'
     
     if not os.path.exists(RESULT_DIR): os.makedirs(RESULT_DIR)
@@ -142,7 +142,7 @@ def main():
         writer.writerows(csv_data)
 
     print(f"\n✅ 평가 완료! 요약 리포트: '{report_filename}'")
-    print(f"📊 논문용 CSV 데이터가 '{csv_filename}'에 저장되었습니다!")
+    print(f"📊 CSV 데이터가 '{csv_filename}'에 저장되었습니다!")
 
 if __name__ == "__main__":
     main()

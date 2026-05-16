@@ -315,7 +315,7 @@ def evaluate_with_gemini(code_content, ground_truth_cwes):
 # 7. 메인 평가 루프
 # ===========================================================
 def main():
-    print(f"=== 🚀 [{TARGET_MODEL}] 논문용 데이터 수집 평가 시스템 시작 (Tree-sitter + MITRE + RAG) ===")
+    print(f"=== 🚀 [{TARGET_MODEL}] 데이터 수집 평가 시스템 시작 (Tree-sitter + MITRE + RAG) ===")
 
     RESULT_DIR = 'result_int'
     os.makedirs(RESULT_DIR, exist_ok=True)
@@ -412,7 +412,7 @@ def main():
         writer.writerows(csv_data)
 
     print(f"\n✅ 평가 완료! 요약 리포트: '{report_filename}'")
-    print(f"📊 논문용 CSV 데이터: '{csv_filename}'")
+    print(f"📊 CSV 데이터: '{csv_filename}'")
     print(f"\n📈 최종 정확도: {accuracy:.1f}% ({correct}/{total}) | 평균 추론 시간: {avg_time}s")
 
 
