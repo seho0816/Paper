@@ -1,148 +1,93 @@
-import os
-import datetime
-import re
-import time
-import subprocess
-import json
-import csv
-from config import TEST_DIR
+"""
+run_eval_bandit.py
+========================
+비교군 ①: Bandit (SAST)
+변경: compute_metrics() 연동, save_report에 metrics 전달
+"""
 
-TOOL_NAME = 'Bandit (SAST)'
+import os, re, time, json, subprocess
+from config import TEST_DIR, RESULT_DIR, MODEL_BANDIT
+from utils.eval_utils import (
+    extract_ground_truth, score_prediction,
+    make_csv_row, save_report, save_csv, compute_metrics
+)
 
-def evaluate_with_bandit(file_path, ground_truth_cwes):
-    start_time = time.time()
-    predicted_cwes = []
-    
+TOOL = MODEL_BANDIT
+
+
+def run_bandit(file_path: str) -> tuple[list[str], float]:
+    start = time.time()
+    predicted: list[str] = []
     try:
-        # Bandit 명령어를 백그라운드에서 실행 (JSON 포맷으로 결과 받기)
         result = subprocess.run(
-            ['bandit', '-r', file_path, '-f', 'json', '-q'], 
-            capture_output=True, 
-            text=True
+            ['bandit', '-r', file_path, '-f', 'json', '-q'],
+            capture_output=True, text=True, timeout=60
         )
-        
-        # 결과 JSON 파싱
-        bandit_output = json.loads(result.stdout)
-        
-        # CWE 번호 추출
-        for issue in bandit_output.get('results', []):
+        output = json.loads(result.stdout)
+        for issue in output.get('results', []):
             cwe_info = issue.get('issue_cwe', {})
             if 'id' in cwe_info:
-                predicted_cwes.append(f"CWE-{cwe_info['id']}")
-                
-        # 중복 제거
-        predicted_cwes = list(set(predicted_cwes))
-        
+                cwe = f"CWE-{cwe_info['id']}"
+                if cwe not in predicted:
+                    predicted.append(cwe)
+    except subprocess.TimeoutExpired:
+        print("⚠️  Bandit 타임아웃")
+    except json.JSONDecodeError:
+        pass
     except Exception as e:
-        print(f"  [Error] Bandit 실행 중 에러: {e}")
+        print(f"  [Error] {e}")
+    return predicted, round(time.time() - start, 2)
 
-    inference_time = round(time.time() - start_time, 2)
-    
-    # 예측 결과를 문자열로 변환 (없으면 None)
-    pred_str = "/".join(predicted_cwes) if predicted_cwes else "None"
-    
-    # 채점 로직: 정답이 여러 개일 수 있으므로 교집합 확인 / 정답이 None이면 예측도 None이어야 함
-    is_correct = False
-    if ground_truth_cwes == ["None"] and pred_str == "None":
-        is_correct = True  # 패치된 코드를 안전하다고 판별한 경우
-    else:
-        for pred_cwe in predicted_cwes:
-            if pred_cwe in ground_truth_cwes:
-                is_correct = True
-                break
-                
-    eval_result = 'TP' if is_correct else 'FP'
-        
-    return {
-        'prediction': pred_str, 
-        'eval_result': eval_result,
-        'inference_time': inference_time
-    }
 
 def main():
-    print(f"=== 🚀 [{TOOL_NAME}] 데이터 수집 평가 시스템 시작 ===")
-    RESULT_DIR = 'result_int'
-    
-    if not os.path.exists(RESULT_DIR): os.makedirs(RESULT_DIR)
-
-    test_files = [f for f in os.listdir(TEST_DIR) if f.endswith('.py')]
+    print(f"=== 🚀 [{TOOL}] 평가 시작 ===\n")
+    test_files = sorted(f for f in os.listdir(TEST_DIR) if f.endswith('.py'))
     if not test_files:
-        print(f"❌ '{TEST_DIR}' 폴더에 파이썬 파일이 없습니다.")
-        return
+        print(f"❌ '{TEST_DIR}' 없음"); return
 
-    model_stats = {'Correct': 0, 'Incorrect': 0, 'total_time': 0, 'logs': []}
-    csv_data = []
-    
-    total_files = len(test_files)
-    print(f"\n⏳ [{TOOL_NAME}] 검사 진행 중... (총 {total_files}개 파일)")
-    
-    for idx, filename in enumerate(test_files, start=1):
+    total = len(test_files)
+    correct = 0; total_time = 0.0
+    logs: list[str] = []; csv_data: list[dict] = []
+
+    for idx, filename in enumerate(test_files, 1):
         file_path = os.path.join(TEST_DIR, filename)
-        
-        progress = (idx / total_files) * 100
-        print(f"  ▶ [{idx}/{total_files}] ({progress:.1f}%) '{filename}' 분석 중... ", end='', flush=True)
-        
-        matches = re.findall(r'CWE-\d{3,4}', filename, re.IGNORECASE)
-        ground_truth_cwes = matches if matches else ["None"]
-        
-        # Bandit 평가 실행
-        result = evaluate_with_bandit(file_path, ground_truth_cwes)
-        
-        gt_str = "/".join(ground_truth_cwes)
-        match_ox = 'O' if result['eval_result'] == 'TP' else 'X'
-        
-        # 터미널 간략 출력
-        if match_ox == 'O':
-            model_stats['Correct'] += 1
-            print(f"✅ 정답 (판정: {match_ox} | 시간: {result['inference_time']}s)")
+        gt = extract_ground_truth(filename)
+        print(f"  [{idx:02d}/{total}] {filename}", end=" ... ", flush=True)
+
+        predicted_list, elapsed = run_bandit(file_path)
+        pred_str = predicted_list[0] if predicted_list else "None"
+
+        eval_result = "FP"
+        if gt == ["None"] and not predicted_list:
+            eval_result = "TP"
+            pred_str = "None"
         else:
-            model_stats['Incorrect'] += 1
-            print(f"❌ 오답 (판정: {match_ox} | 정답: {gt_str} 👉 예측: {result['prediction']} | 시간: {result['inference_time']}s)")
-            
-        model_stats['total_time'] += result['inference_time']
-        
-        csv_data.append({
-            'Model': 'Bandit',
-            'Filename': filename,
-            'Ground_Truth': gt_str,
-            'Prediction': result['prediction'],
-            'Match': match_ox,
-            'Time_s': result['inference_time'],
-            'Memory_MB': 'CLI'
-        })
-        
-        log_str = f"📄 {filename} | 정답: {gt_str:<10} | 예측: {result['prediction']:<10} | 판정: {match_ox} | 시간: {result['inference_time']}s"
-        model_stats['logs'].append(log_str)
+            for p in predicted_list:
+                if p in gt:
+                    eval_result = "TP"; pred_str = p; break
 
-    now_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    
-    # 1. 텍스트 리포트 저장
-    report_filename = os.path.join(RESULT_DIR, f'Eval_Bandit_{now_str}.txt')
-    with open(report_filename, mode='w', encoding='utf-8') as rf:
-        rf.write("=" * 60 + "\n")
-        rf.write(f"📊 [{TOOL_NAME}] CWE 식별 정확도 평가 리포트\n")
-        rf.write("=" * 60 + "\n\n")
-        
-        correct = model_stats['Correct']
-        accuracy = (correct / total_files * 100) if total_files > 0 else 0
-        avg_time = round(model_stats['total_time'] / total_files, 2) if total_files > 0 else 0
-        
-        rf.write(f"| Accuracy: {accuracy:.1f}% | Correct: {correct} | Incorrect: {total_files-correct} | Avg Time: {avg_time}s |\n\n")
-        
-        rf.write("📝 상세 로그\n")
-        rf.write("-" * 60 + "\n")
-        for log in model_stats['logs']: 
-            rf.write(log + "\n")
+        match_ox = 'O' if eval_result == 'TP' else 'X'
+        gt_str   = "/".join(gt)
 
-    # 2. 엑셀용 CSV 데이터 저장
-    csv_filename = os.path.join(RESULT_DIR, f'Data_Bandit_{now_str}.csv')
-    with open(csv_filename, mode='w', encoding='utf-8-sig', newline='') as cf:
-        writer = csv.DictWriter(cf, fieldnames=['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Memory_MB'])
-        writer.writeheader()
-        writer.writerows(csv_data)
+        if eval_result == 'TP':
+            correct += 1
+            print(f"✅ {match_ox} | {elapsed}s")
+        else:
+            bandit_str = "/".join(predicted_list) if predicted_list else "None"
+            print(f"❌ {match_ox} | GT:{gt_str} → Pred:{bandit_str} | {elapsed}s")
 
-    print(f"\n✅ 평가 완료! 요약 리포트: '{report_filename}'")
-    print(f"📊 CSV 데이터가 '{csv_filename}'에 저장되었습니다!")
+        total_time += elapsed
+        logs.append(f"📄 {filename:<40} | GT:{gt_str:<15} | Pred:{pred_str:<12} | {match_ox} | {elapsed}s")
+        row = make_csv_row(TOOL, filename, gt, pred_str, eval_result, elapsed, "CLI")
+        row['Ground_Truth'] = gt_str  # 복수 CWE 유지
+        csv_data.append(row)
+
+    metrics = compute_metrics(csv_data)
+    rpt = save_report(RESULT_DIR, TOOL, total, correct, total_time, logs, metrics)
+    csv = save_csv(RESULT_DIR, TOOL, csv_data)
+    acc = correct / total * 100 if total else 0
+    print(f"\n✅ 완료 | Accuracy:{acc:.1f}% | P:{metrics['Precision']}% R:{metrics['Recall']}% F1:{metrics['F1']}%")
+    print(f"   리포트:{rpt}\n   CSV:{csv}")
 
 if __name__ == "__main__":
     main()
