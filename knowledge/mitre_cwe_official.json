@@ -141,5 +141,18 @@
     "parent_cwe": ["CWE-400", "CWE-665"],
     "related_cwe": ["CWE-774", "CWE-789", "CWE-1325", "CWE-20"],
     "python_note": "Python 애플리케이션에서 사용자 입력값에 따라 리스트, 버퍼, 파일 저장 공간, DB 쓰기 작업, 요청 처리 횟수 등을 제한 없이 할당하면 CWE-770과 관련될 수 있다. 예를 들어 `range(size)`의 `size`를 사용자 입력으로 받아 대량 메모리를 할당하거나, 파일 업로드 크기 제한 없이 저장하거나, 로그인·댓글 작성·업로드 API에 rate limiting이 없어 동일 사용자가 과도한 자원 할당을 반복 유발하는 경우가 이에 해당한다. 단순히 자원 소비 결과만 넓게 설명하는 경우는 CWE-400이 더 포괄적이며, 실제 원인이 '할당 한도 또는 스로틀링 부재'라면 CWE-770이 더 직접적이다."
+  },
+  "CWE-639": {
+    "cwe": "CWE-639",
+    "source": "MITRE",
+    "source_url": "https://cwe.mitre.org/data/definitions/639.html",
+    "official_title": "Authorization Bypass Through User-Controlled Key",
+    "abstraction": "Base",
+    "vulnerability_mapping": "ALLOWED",
+    "summary_ko": "제품이 사용자 제어 가능한 키 값으로 특정 데이터나 레코드를 조회하면서, 해당 사용자가 그 자원에 접근할 권한이 있는지 적절히 검증하지 않아 다른 사용자의 데이터에 접근하거나 권한을 우회할 수 있는 취약점이다.",
+    "mitigation_ko": "모든 데이터 접근 요청마다 현재 사용자가 해당 레코드에 접근할 권한이 있는지 서버 측에서 반드시 검증해야 한다. 조회에 사용되는 키 값이 외부에서 조작되지 않도록 하거나, 조작이 발생했는지 검출할 수 있어야 하며, 필요 시 키 값에 서명이나 무결성 검증을 적용해 위변조를 방지해야 한다.",
+    "parent_cwe": ["CWE-863", "CWE-284"],
+    "related_cwe": ["CWE-566"],
+    "python_note": "Python 웹 애플리케이션에서 URL 파라미터, 쿼리스트링, 폼 필드, 쿠키 등 사용자 제어 가능한 값으로 `user_id`, `order_id`, `invoice_id`, `post_id` 같은 객체 식별자를 받아 조회하거나 수정하면서, 현재 로그인한 사용자가 해당 자원의 소유자인지 확인하지 않으면 CWE-639와 관련될 수 있다. 예를 들어 `/users/<user_id>/profile`, `/orders?order_id=1234`, `/api/invoices/<invoice_id>` 같은 엔드포인트에서 인증은 되어 있지만 객체 수준 권한 검증이 없으면, 공격자가 식별자만 바꿔 다른 사용자의 데이터에 접근하는 IDOR/BOLA 유형의 문제가 발생할 수 있다."
   }
 }

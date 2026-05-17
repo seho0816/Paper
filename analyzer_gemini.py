@@ -3,6 +3,7 @@ import json
 import re
 import chromadb
 from google import genai
+from google.genai import types
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 from dotenv import load_dotenv
@@ -134,6 +135,18 @@ def extract_all_functions(node, source_bytes, chunks_list):
     for child in node.children:
         extract_all_functions(child, source_bytes, chunks_list)
 
+def extract_cwes_from_metadata_value(cwe_value):
+    """
+    metadata의 cwe 값에서 CWE 번호를 추출합니다.
+    예:
+    'CWE-942'
+    'CWE-117, CWE-532'
+    """
+    if not cwe_value:
+        return []
+
+    return re.findall(r"CWE-\d+", str(cwe_value))
+
 def build_mitre_context(candidate_cwes, mitre_cwe_db):
     """
     최종 판정된 CWE ID 목록을 기준으로
@@ -169,9 +182,14 @@ Python 관련 메모: {info.get("python_note", "")}
 
 def extract_final_cwes_from_result(result_text):
     """
-    Gemini 분석 결과에서 '최종 CWE' 항목에 해당하는 CWE 번호만 추출합니다.
-    '최종 CWE로 판단한 이유', '관련 CWE를 최종 CWE로 선택하지 않은 이유'는 제외합니다.
+    Gemini 분석 결과에서 최종 CWE를 추출합니다.
+    우선 <CWE>...</CWE> 태그를 사용하고,
+    태그가 없으면 '최종 CWE' 항목을 보조적으로 탐색합니다.
     """
+    tagged_cwes = re.findall(r"<CWE>\s*(CWE-\d+)\s*</CWE>", result_text)
+    if tagged_cwes:
+        return list(dict.fromkeys(tagged_cwes))
+
     final_cwes = []
     lines = result_text.splitlines()
 
@@ -212,6 +230,186 @@ def extract_final_cwes_from_result(result_text):
                 final_cwes.append(cwe)
 
     return final_cwes
+
+def parse_json_object_from_text(text):
+    """
+    Gemini가 반환한 JSON 문자열을 안전하게 파싱합니다.
+    ```json ... ``` 코드펜스가 있어도 처리합니다.
+    """
+    cleaned = text.strip()
+
+    cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^```\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if not match:
+        raise ValueError("응답에서 JSON 객체를 찾지 못했습니다.")
+
+    return json.loads(match.group(0))
+
+def verify_retrieved_evidences(genai_client, user_code, evidence_items):
+    """
+    RAG로 검색된 DB 지식이 사용자 코드의 취약 원인과
+    직접적으로 대응하는지 검증합니다.
+
+    반환:
+    {
+        "verified_items": [...],
+        "verified_cwes": set(...),
+        "matched_results": [...],
+        "raw_response": "..."
+    }
+    """
+
+    if not evidence_items:
+        return {
+            "verified_items": [],
+            "verified_cwes": set(),
+            "matched_results": [],
+            "raw_response": ""
+        }
+
+    evidence_text = "\n\n".join(
+        [
+            f"""
+--- [근거 문서 {item['id']}] ---
+메타데이터 CWE: {", ".join(item['cwes'])}
+DB 지식:
+{item['doc']}
+""".strip()
+            for item in evidence_items
+        ]
+    )
+
+    verification_prompt = f"""
+당신은 'DB 근거 직접 대응 검증기'입니다.
+
+목표:
+사용자 코드의 취약 원인과 검색된 DB 지식의 '구체 취약 패턴'이
+직접적으로 대응하는지 엄격하게 검증하세요.
+
+중요 규칙:
+1. CWE 번호가 같다는 이유만으로 MATCH 처리하지 마세요.
+2. 같은 상위 보안 주제에 속하더라도, 실제 취약 원인과 공격 방식이 다르면 NO_MATCH입니다.
+3. 변수명, 함수명, 라우트명, 도메인이 달라도 취약 원리가 같으면 MATCH 가능합니다.
+4. 그러나 DB 지식은 토큰 위조인데 사용자 코드는 평문 파일 저장처럼,
+   구체 패턴이 다르면 반드시 NO_MATCH입니다.
+5. 외부 보안 지식으로 추론을 보강하지 마세요.
+6. 오직 [DB 지식]과 [사용자 코드]의 직접 대응 여부만 판단하세요.
+7. 확신이 부족하면 NO_MATCH로 처리하세요.
+8. 코드에 명시적으로 드러난 사실만 근거로 판단하세요.
+   함수명, 변수명, 필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요.
+
+9. 특정 CWE가 성립하려면 사용자 또는 외부 입력이 직접 영향을 주어야 하는 경우,
+   그 입력 유입 경로가 사용자 코드 전체에서 명확히 확인되어야 MATCH로 판정할 수 있습니다.
+
+10. 특히 CWE-639를 MATCH로 판정하려면 다음 조건이 확인되어야 합니다.
+    - 객체 식별자(user_id, order_id, doc_id 등)가
+      외부 사용자가 조작할 수 있는 입력에서 유입되었거나,
+      코드 전체에서 그러한 외부 입력이 해당 식별자로 전달되는 흐름이 명시적으로 보여야 합니다.
+    - 예: request.args, request.form, request.json, request.cookies,
+      request.headers, Flask URL path parameter, 또는 이러한 값이 다른 함수 인자로 전달되는 경우
+    - 그 식별자를 기반으로 특정 객체를 조회, 수정, 삭제 또는 저장해야 합니다.
+    - 해당 객체에 대한 현재 사용자 소유권 또는 접근 권한 검증이 누락되어 있어야 합니다.
+
+11. 단순히 함수 매개변수 이름이 user_id, order_id, doc_id라는 이유만으로
+    사용자 통제 식별자라고 단정하지 마세요.
+    코드 전체에서 외부 입력 유입 또는 전달 흐름이 확인되지 않으면 NO_MATCH로 처리하세요.
+    
+각 근거 문서에 대해:
+- 직접 대응하면 matches에 포함
+- 직접 대응하지 않으면 rejected에 포함
+
+matched_cwes에는 해당 근거 문서의 메타데이터 CWE 중
+이번 사용자 코드에 직접 적용되는 CWE만 적으세요.
+
+반드시 아래 JSON 형식으로만 답변하세요.
+설명 문장, 마크다운, 코드블록은 출력하지 마세요.
+
+{{
+  "matches": [
+    {{
+      "evidence_id": "E1",
+      "matched_cwes": ["CWE-639"],
+      "reason": "사용자 통제 order_id로 객체를 선택하고 소유권 검증 없이 상태를 변경하는 구조가 DB 패턴과 직접 일치함"
+    }}
+  ],
+  "rejected": [
+    {{
+      "evidence_id": "E2",
+      "reason": "CWE 번호는 유사하지만 DB 지식의 구체 취약 패턴과 사용자 코드의 원인이 다름"
+    }}
+  ]
+}}
+
+[사용자 코드]
+{user_code}
+
+[검색된 DB 지식]
+{evidence_text}
+"""
+
+    response = genai_client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=verification_prompt,
+        config=types.GenerateContentConfig(
+            temperature=0,
+            seed=42,
+            response_mime_type="application/json"
+        )
+    )
+
+    raw_response = response.text or ""
+
+    try:
+        parsed = parse_json_object_from_text(raw_response)
+    except Exception:
+        # 검증 응답 파싱에 실패하면 보수적으로 모두 거부
+        return {
+            "verified_items": [],
+            "verified_cwes": set(),
+            "matched_results": [],
+            "raw_response": raw_response
+        }
+
+    evidence_by_id = {item["id"]: item for item in evidence_items}
+
+    verified_items = []
+    verified_cwes = set()
+    matched_results = []
+
+    for match in parsed.get("matches", []):
+        evidence_id = match.get("evidence_id")
+        if evidence_id not in evidence_by_id:
+            continue
+
+        evidence = evidence_by_id[evidence_id]
+
+        matched_cwes = set(match.get("matched_cwes", []))
+        allowed_doc_cwes = set(evidence["cwes"])
+
+        # 문서 메타데이터에 존재하는 CWE만 인정
+        valid_matched_cwes = matched_cwes & allowed_doc_cwes
+
+        if not valid_matched_cwes:
+            continue
+
+        verified_items.append(evidence)
+        verified_cwes.update(valid_matched_cwes)
+
+        matched_results.append({
+            "evidence_id": evidence_id,
+            "matched_cwes": sorted(valid_matched_cwes),
+            "reason": match.get("reason", "")
+        })
+
+    return {
+        "verified_items": verified_items,
+        "verified_cwes": verified_cwes,
+        "matched_results": matched_results,
+        "raw_response": raw_response
+    }
 
 def parse_and_chunk(source_code):
     """
@@ -294,6 +492,8 @@ while True:
         print("[2/3] 🔍 DB에서 각 함수별로 취약점 패턴 검색 중...")
 
     retrieved_contexts_set = set()
+    retrieved_candidate_cwes = set()
+    retrieved_evidence_map = {}
     DISTANCE_THRESHOLD = 1.8
 
     db_size = collection.count()
@@ -317,36 +517,91 @@ while True:
             dist = distances[j]
 
             if dist < DISTANCE_THRESHOLD:
-                doc = metadatas[j].get('full_text', '')
-                if doc:
-                    retrieved_contexts_set.add(doc)
+                doc = metadatas[j]['full_text']
+                retrieved_contexts_set.add(doc)
 
                 cwe_value = metadatas[j].get('cwe')
+                found_cwes = extract_cwes_from_metadata_value(cwe_value)
+                retrieved_candidate_cwes.update(found_cwes)
+
+                if doc not in retrieved_evidence_map:
+                    retrieved_evidence_map[doc] = {
+                        "doc": doc,
+                        "cwes": set(found_cwes),
+                        "best_distance": dist,
+                        "chunks": {i + 1}
+                    }
+                else:
+                    retrieved_evidence_map[doc]["cwes"].update(found_cwes)
+                    retrieved_evidence_map[doc]["best_distance"] = min(
+                        retrieved_evidence_map[doc]["best_distance"],
+                        dist
+                    )
+                    retrieved_evidence_map[doc]["chunks"].add(i + 1)
 
                 print(
                     f"  📍 [청크 {i+1}] "
                     f"CWE={cwe_value} 유사도 거리={dist:.4f}"
                 )
 
-    valid_docs_count = len(retrieved_contexts_set)
+    # 검색된 DB 문서를 검증용 evidence item으로 변환
+    evidence_items = []
 
-    if valid_docs_count == 0:
+    for idx, evidence in enumerate(retrieved_evidence_map.values(), start=1):
+        evidence_items.append({
+            "id": f"E{idx}",
+            "doc": evidence["doc"],
+            "cwes": sorted(evidence["cwes"]),
+            "best_distance": evidence["best_distance"],
+            "chunks": sorted(evidence["chunks"])
+        })
+
+    print("\n[3/4] 🧾 검색된 DB 지식과 사용자 코드의 직접 대응 여부를 검증합니다...")
+
+    verification_result = verify_retrieved_evidences(
+        genai_client,
+        user_code,
+        evidence_items
+        )
+
+    verified_items = verification_result["verified_items"]
+    verified_candidate_cwes = verification_result["verified_cwes"]
+    matched_results = verification_result["matched_results"]
+
+    print("\n=== 🧾 [디버그] DB 근거 직접 대응 검증 결과 ===")
+    if matched_results:
+        for item in matched_results:
+            print(
+               f"✅ {item['evidence_id']} "
+                f"매칭 CWE={item['matched_cwes']} "
+                f"사유={item['reason']}"
+            )
+    else:
+        print("직접 대응한다고 판정된 DB 지식이 없습니다.")
+        print("================================================\n")
+
+    if not verified_items or not verified_candidate_cwes:
         print("\n================ [AI 분석 결과] ================")
-        print("DB 내에 일치하는 위협 패턴이 없어 분석을 건너뜁니다. (안전하거나 미등록된 패턴)")
+        print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
         print("================================================\n")
         continue
 
     print(
-        f"\n[3/3] 🧠 {valid_docs_count}개의 고유 지식을 바탕으로 "
+        f"\n[4/4] 🧠 {len(verified_items)}개의 직접 대응 DB 지식을 바탕으로 "
         "AI 정밀 분석을 시작합니다..."
     )
 
     retrieved_context = "\n\n".join(
         [
-            f"--- [Python 취약/개선 예시 {idx+1}] ---\n{doc}"
-            for idx, doc in enumerate(retrieved_contexts_set)
+            f"--- [검증 통과 DB 지식 {idx+1}] ---\n{item['doc']}"
+            for idx, item in enumerate(verified_items)
         ]
     )
+
+    retrieved_candidate_cwes = set(verified_candidate_cwes)
+
+    allowed_cwes_text = ", ".join(sorted(retrieved_candidate_cwes)) \
+        if retrieved_candidate_cwes else "없음"
 
     prompt = f"""
         당신은 파이썬 보안 전문가입니다. 
@@ -354,7 +609,7 @@ while True:
         
         Hallucination 방지
         1. 제공된 [참고 지식(DB)]들을 복합적으로 참조하여 분석하세요.
-        2. [참고 지식(DB)]이 비어있거나 무관하다면 "현재 보안 DB에 일치하는 취약점 패턴이 없어 정확한 분석을 수행할 수 없습니다." 라고만 답변하세요.
+        2. [참고 지식(DB)]이 비어있거나 무관하다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다." 라고만 답변하세요.
         3. 취약점이 발견되더라도, DB에 있는 해결책 예제 코드를 그대로 복사하지 마세요.
         4. 반드시 [사용자 입력 전체 코드]의 문맥을 유지하면서, 취약점만 안전하게 패치한 '사용자 맞춤형 개선 코드'를 작성하세요. 개선 코드는 함수명을 변경하지 마세요.
         5. 수정된 코드와 함께 관련 CWE 번호 및 패치 원리를 설명하세요.
@@ -407,6 +662,30 @@ while True:
         취약점이 없다면 <CWE>None</CWE>을 출력하세요.
 
 
+        [이번 분석에서 사용 가능한 CWE 범위]
+        {allowed_cwes_text}
+
+        [DB 근거 제한 규칙]
+        1. 최종 CWE로 확정할 수 있는 CWE는 반드시
+        [이번 분석에서 사용 가능한 CWE 범위]에 포함된 CWE만 허용됩니다.
+
+        2. 위 목록에 없는 CWE를 별도의 최종 취약점으로 확정하거나,
+        해당 CWE를 직접 근거로 새로운 개선 코드를 생성하지 마세요.
+
+        3. 단, 최종 CWE의 분류적 이해를 돕기 위한
+        상위 CWE, 관련 CWE, 하위 후보 CWE는 보조 설명 수준에서 언급할 수 있습니다.
+        이 경우 반드시 "관련 CWE", "상위 CWE", "후보 CWE"처럼
+        최종 판정이 아님을 분명히 표시하세요.
+
+        4. 사용자 코드에서 보안상 의심되는 문제가 보이더라도,
+        제공된 [참고 지식(Security Knowledge Base)]으로 직접 설명할 수 없다면
+        그 문제를 최종 취약점으로 확정하지 마세요.
+
+        5. 검색된 DB 지식과 사용자 코드의 취약 원인이 직접적으로 대응하지 않는다면
+        반드시 아래 문장만 출력하세요.
+
+        "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."
+
         [참고 지식(Security Knowledge Base)]
         {retrieved_context}
 
@@ -421,28 +700,36 @@ while True:
         )
         result_text = response.text or ""
 
-        if "미등록 패턴" in result_text or "취약점이 발견되지 않았습니다" in result_text:
+# Gemini가 보류 응답을 낸 경우
+        if "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다." in result_text:
             print("\n================ [AI 분석 결과] ================")
-            print("현재 코드에서 보안 DB와 일치하는 취약점이 발견되지 않았습니다.")
+            print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
             print("================================================\n")
             continue
+
+        # 최종 CWE 추출
+        final_cwes = extract_final_cwes_from_result(result_text)
+
+        # 최종 CWE가 없거나, DB 검색 후보 밖이면 차단
+        if not final_cwes or not set(final_cwes).issubset(verified_candidate_cwes):
+            print("\n================ [AI 분석 결과] ================")
+            print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
+            print("================================================\n")
+            continue
+        
+        final_mitre_context = build_mitre_context(
+        final_cwes,
+        mitre_cwe_db
+        )
 
         print("\n================ [AI 분석 결과] ================")
         print(result_text)
         print("================================================\n")
 
-        # --- 최종 CWE 판정 이후 MITRE JSON exact lookup ---
-        final_cwes = extract_final_cwes_from_result(result_text)
-
         print("\n=== 📚 [MITRE 공식 기준 보강] ===")
         print(f"최종 CWE exact lookup 대상: {final_cwes}")
-
-        if final_cwes:
-            final_mitre_context = build_mitre_context(final_cwes, mitre_cwe_db)
-            print(final_mitre_context)
-        else:
-            final_mitre_context = "AI 분석 결과에서 최종 CWE를 추출하지 못해 MITRE 공식 기준 출력을 생략합니다."
-            print(final_mitre_context)
+        print(final_mitre_context)
+        print("================================================\n")
 
         print("================================================\n")
 
@@ -465,4 +752,4 @@ while True:
 
     except Exception as e:
         print(f"오류 발생: {e}")
-    
+        
