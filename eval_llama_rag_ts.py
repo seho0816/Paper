@@ -1,4 +1,4 @@
-"""eval_llama_ts.py — 제안 모델 ④: Llama 3.2 + Tree-sitter RAG + MITRE"""
+"""eval_llama_rag_ts.py — 제안 모델 ④: Llama 3.2 + Tree-sitter RAG + MITRE"""
 import time, ollama
 from config import MODEL_LLAMA_RAG, OLLAMA_LLAMA, OLLAMA_OPTIONS
 from rag_ts_engine import RAGEngine
@@ -11,7 +11,9 @@ def main():
     rag = RAGEngine()
 
     def evaluate(code, is_patch=False):
-        rag_ctx, mitre_ctx, allowed = rag.get_context(code)
+        # get_context_local(): 한국어 RAG 컨텍스트를 영어 요약으로 압축
+        # → 토큰 대폭 감소, 로컬 모델 영어 응답 유도, 속도 개선
+        rag_ctx, mitre_ctx, allowed = rag.get_context_local(code)
         if is_patch:
             prompt = build_patch_en(code, rag_ctx, mitre_ctx)
         else:
@@ -19,7 +21,11 @@ def main():
             prompt = build_rag_en(code, rag_ctx, mitre_ctx, allowed)
         start = time.time()
         try:
-            r = ollama.chat(model=OLLAMA_LLAMA, messages=[{'role':'user','content':prompt}], options=OLLAMA_OPTIONS)
+            r = ollama.chat(
+                model=OLLAMA_LLAMA,
+                messages=[{'role':'user','content':prompt}],
+                options=OLLAMA_OPTIONS
+            )
             text = r['message']['content']
         except Exception as e:
             text = f"Error: {e}"

@@ -30,10 +30,11 @@ def compute(csv_rows: list[dict]) -> dict:
             else:        tp += 1
         else:
             if is_patch:
-                fp += 1
+                fp += 1   # 패치 코드에서 CWE 예측 → 오탐
+            elif pred in ('None', 'UNKNOWN', 'SKIPPED'):
+                fn += 1   # 취약 코드인데 탐지 못함 → 미탐
             else:
-                fn += 1 if pred in ('None', 'UNKNOWN', 'SKIPPED') else 0
-                fp += 1 if pred not in ('None', 'UNKNOWN', 'SKIPPED') else 0
+                fp += 1   # 취약 코드에서 틀린 CWE 예측 → 오탐
 
         try:
             t = float(row.get('Time_s', 0))

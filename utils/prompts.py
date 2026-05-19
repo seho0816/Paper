@@ -3,10 +3,13 @@ utils/prompts.py
 프롬프트 생성 함수.
 
 [모델별 전략]
-  Gemini / Qwen  → 한국어 (build_rag / build_raw / build_patch)
-  Llama 3.2      → 영어   (build_rag_en / build_raw_en / build_patch_en)
-                   소형 로컬 모델은 긴 한국어 지시에서 <CWE> 태그 미준수 현상 발생.
-                   영어 + 짧은 구조로 태그 준수율 대폭 향상.
+  Gemini / Claude → 한국어 (build_rag / build_raw / build_patch)
+  Qwen / Llama    → 영어   (build_rag_en / build_raw_en / build_patch_en)
+                    소형 로컬 모델은 긴 한국어 지시에서 <CWE> 태그 미준수 현상 발생.
+                    영어 + 짧은 구조로 태그 준수율 대폭 향상.
+                    각 eval 스크립트에서 alias로 선택 사용:
+                      eval_qwen*.py  → build_raw_en as build_raw
+                      eval_llama*.py → build_raw_en (직접 사용)
 
 [환각 방지 - analyzer_gemini.py 반영]
   allowed_cwes : rag_engine.get_context() 의 3번째 반환값.
@@ -68,7 +71,7 @@ _PATCH_OUT_KO = """
 
 
 # ══════════════════════════════════════════════════════════════
-# 공통 블록 — 영어 (Llama 3.2 전용, 간결하게 유지)
+# 공통 블록 — 영어 (Qwen / Llama 로컬 모델용, 간결하게 유지)
 # ══════════════════════════════════════════════════════════════
 
 _CWE_EN = """
@@ -83,25 +86,21 @@ _OUT_EN = """
 =========================================
 [Output — follow exactly]
 
-▶ Analysis: (explain the vulnerability)
-▶ Patched Code:
-```python
-(full patched code)
-```
-▶ Final decision: (CWE or None)
+▶ Vulnerability: (one sentence, the root cause)
+▶ Final CWE: (CWE number or None)
 
-[MANDATORY] Last line of response: <CWE>CWE-XXX</CWE> or <CWE>None</CWE>
+[MANDATORY] Output exactly this on the last line: <CWE>CWE-XXX</CWE> or <CWE>None</CWE>
 """.strip()
 
 _PATCH_OUT_EN = """
 =========================================
 [Output — follow exactly]
 
-▶ Review: (security status of this code)
-▶ Final decision: (CWE if vulnerable, None if safe)
+▶ Status: (safe or vulnerable, one sentence)
+▶ Final: (CWE if vulnerable, None if safe)
 
 [MANDATORY] Last line: <CWE>CWE-XXX</CWE> or <CWE>None</CWE>
-If the code is already secure: <CWE>None</CWE>
+Safe code → <CWE>None</CWE>
 """.strip()
 
 

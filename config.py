@@ -21,10 +21,15 @@ MODEL_QWEN_RAG        = "qwen2.5-coder_rag"           # 제안 모델 ④: Tree-
 MODEL_LLAMA_RAG       = "llama3.2_rag"
 MODEL_GEMINI_RAG      = "gemini-2.5-pro_rag"
 
-# ── Ollama / Gemini 실제 모델 ID ──────────────────────────────
+MODEL_CLAUDE_RAW      = "claude-3-5-sonnet_raw"        # Claude API
+MODEL_CLAUDE_RAG      = "claude-3-5-sonnet_rag"
+MODEL_CLAUDE_RAG_TS   = "claude-3-5-sonnet_rag_ts"
+
+# ── Ollama / Gemini / Claude 실제 모델 ID ─────────────────────
 OLLAMA_QWEN  = "qwen2.5-coder"
 OLLAMA_LLAMA = "llama3.2"
 GEMINI_MODEL = "gemini-2.5-pro"
+CLAUDE_MODEL = "claude-sonnet-4-5"                     # Anthropic API 모델 ID
 
 # ── 경로 ─────────────────────────────────────────────────────
 TEST_DIR        = "py_dataset"
@@ -46,11 +51,16 @@ MITRE_TOP_K_PER_CHUNK = 2
 SIMPLE_RAG_CHUNK_LINES = 20
 
 # ── Ollama 추론 옵션 ──────────────────────────────────────────
-# [문제] num_ctx 미설정 시 Ollama가 모델 기본값(최대 128K) KV캐시를 잡아
-#        로딩 및 연산에만 수백 초가 걸림. 우리 프롬프트는 최대 4K 토큰.
-# [해결] num_ctx=4096 고정 → 불필요한 메모리/연산 차단, 5배+ 속도 향상
-# [참고] num_predict: 모델이 생성하는 최대 출력 토큰. 분석 결과 500토큰 내외.
+# [문제] RAG 버전은 프롬프트가 ~2700토큰으로 길어서
+#        num_predict=600 내에 <CWE> 태그까지 출력 못하는 현상 발생
+# [해결] num_ctx=4096 유지, num_predict=1200으로 상향
+#        → Analysis + Code + <CWE> 태그 전부 출력 가능
 OLLAMA_OPTIONS = {
     "num_ctx":     4096,   # 컨텍스트 윈도우 고정 (토큰)
-    "num_predict": 600,    # 최대 출력 토큰
+    "num_predict": 1200,   # 최대 출력 토큰 (RAG 버전: 분석+코드+태그 모두 필요)
 }
+
+# ── Ollama RAG 검색 수 제한 (로컬 모델 전용) ─────────────────
+# RAG 버전에서 MAX_RETRIEVAL_K=7이면 프롬프트가 ~2700토큰
+# 로컬 모델은 컨텍스트가 길수록 느려지므로 3으로 제한
+OLLAMA_MAX_RETRIEVAL_K = 3

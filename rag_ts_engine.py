@@ -226,3 +226,47 @@ class RAGEngine:
                 f"출처: {info.get('source_url', '')}"
             )
         return "\n\n".join(sections) if sections else "MITRE JSON에 등록된 공식 기준 정보는 없습니다."
+    def get_context_local(self, source_code: str) -> tuple[str, str, str]:
+        """
+        로컬 소형 모델 전용 get_context.
+        RAG 컨텍스트를 영어 한 줄 요약으로 압축하여 전달.
+        토큰 수를 대폭 줄여 속도 개선 + 영어 응답 유도.
+        """
+        rag_ctx, mitre_ctx, allowed_cwes = self.get_context(source_code)
+        if not rag_ctx:
+            return "", "", ""
+        return (
+            self._summarize_rag(rag_ctx),
+            self._summarize_mitre(mitre_ctx),
+            allowed_cwes
+        )
+
+    def _summarize_rag(self, rag_ctx: str) -> str:
+        """한국어 RAG 컨텍스트에서 CWE 번호와 패턴만 영어 한 줄로 추출."""
+        summaries = []
+        import re
+        blocks = rag_ctx.split('--- [Python')
+        for block in blocks:
+            if not block.strip():
+                continue
+            cwe_match = re.search(r'CWE-\d+', block)
+            cwe = cwe_match.group() if cwe_match else "Unknown"
+            # 취약점 명칭 추출
+            name_match = re.search(r'\[취약점 명칭\]\s*(.+)', block)
+            if not name_match:
+                name_match = re.search(r'Missing|Injection|Exposure|Bypass|Overflow|Hardcod', block)
+            name = name_match.group(1).strip() if (name_match and hasattr(name_match, 'group') and name_match.lastindex) else cwe
+            # 영어 한 줄 요약 생성
+            summaries.append(f"[{cwe}] Pattern: {name[:60]}")
+        return "\n".join(summaries) if summaries else rag_ctx[:200]
+
+    def _summarize_mitre(self, mitre_ctx: str) -> str:
+        """한국어 MITRE 컨텍스트에서 CWE + 공식명만 영어로 추출."""
+        import re
+        lines = []
+        for line in mitre_ctx.split('\n'):
+            if 'MITRE 공식 기준' in line or '공식명' in line or '출처' in line:
+                clean = re.sub(r'[-\[\]]', '', line).strip()
+                if clean:
+                    lines.append(clean)
+        return "\n".join(lines[:6]) if lines else ""
