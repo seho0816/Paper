@@ -6,9 +6,12 @@ app = Flask(__name__)
 users = {
     "pending_user@example.com": {
         "is_active": False
-    },
-    "new_member@example.com": {
-        "is_active": False
+    }
+}
+
+accounts = {
+    "user_1004": {
+        "balance": 1000
     }
 }
 
@@ -41,3 +44,20 @@ def confirm_account_activation():
         "message": "계정 활성화가 완료되었습니다.",
         "activated_email": email
     })
+
+@app.route('/api/v1/withdraw', methods=['POST'])
+def withdraw_funds():
+    user_id = "user_1004"
+    amount = int(request.json.get("amount", 0))
+
+    current_balance = accounts[user_id]["balance"]
+
+    if current_balance >= amount:
+        accounts[user_id]["balance"] -= amount
+
+        return jsonify({
+            "message": "출금 성공",
+            "remaining": accounts[user_id]["balance"]
+        })
+
+    return jsonify({"error": "잔고 부족"}), 400
