@@ -17,6 +17,16 @@ except Exception as e:
 # 3. 컬렉션 불러오기
 collection_name = "python_security_lessons"
 collection = client.get_or_create_collection(name=collection_name)
+# 2. ChromaDB 클라이언트 연결
+try:
+    client = chromadb.PersistentClient(path=db_path)
+except Exception as e:
+    print(f"DB 초기화 실패: {e}")
+    exit()
+
+# 3. 컬렉션 불러오기
+collection_name = "python_security_lessons"
+collection = client.get_or_create_collection(name=collection_name)
 
 # ==========================================
 # 📚 [Snyk: Uncontrolled Recursion]
