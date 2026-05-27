@@ -38,12 +38,18 @@ MODEL_ORDER = [
     "qwen2.5-coder_raw",
     "llama3.2_raw",
     "gemini-2.5-pro_raw",
+    "claude-sonnet-4-5_raw",
+    "grok-3-mini_raw",
     "qwen2.5-coder_simple_rag",
     "llama3.2_simple_rag",
     "gemini-2.5-pro_simple_rag",
-    "qwen2.5-coder_rag",
-    "llama3.2_rag",
-    "gemini-2.5-pro_rag",
+    "claude-sonnet-4-5_simple_rag",
+    "grok-3-mini_simple_rag",
+    "qwen2.5-coder_rag_ts",
+    "llama3.2_rag_ts",
+    "gemini-2.5-pro_rag_ts",
+    "claude-sonnet-4-5_rag_ts",
+    "grok-3-mini_rag_ts",
 ]
 
 MODEL_LABELS = {
@@ -56,7 +62,13 @@ MODEL_LABELS = {
     "gemini-2.5-pro_simple_rag": "Gemini\n(SimpleRAG)",
     "qwen2.5-coder_rag":         "Qwen\n(RAG)",
     "llama3.2_rag":              "Llama\n(RAG)",
-    "gemini-2.5-pro_rag":        "Gemini\n(RAG)",
+    "gemini-2.5-pro_rag_ts":     "Gemini\n(RAG+TS)",
+    "claude-sonnet-4-5_raw":     "Claude\n(Raw)",
+    "claude-sonnet-4-5_simple_rag": "Claude\n(SimpleRAG)",
+    "claude-sonnet-4-5_rag_ts":  "Claude\n(RAG+TS)",
+    "grok-3-mini_raw":           "Grok\n(Raw)",
+    "grok-3-mini_simple_rag":    "Grok\n(SimpleRAG)",
+    "grok-3-mini_rag_ts":        "Grok\n(RAG+TS)",
 }
 
 # 계열별 색상: Bandit=주황, Raw=회색, SimpleRAG=초록, RAG=파랑
@@ -71,6 +83,9 @@ MODEL_COLORS = {
     "qwen2.5-coder_rag":         "#74C0FC",
     "llama3.2_rag":              "#339AF0",
     "gemini-2.5-pro_rag":        "#1971C2",
+    "claude-3-5-sonnet_raw":     "#D0BFFF",
+    "claude-3-5-sonnet_rag":     "#9775FA",
+    "claude-3-5-sonnet_rag_ts":  "#6741D9",
 }
 
 
@@ -156,7 +171,7 @@ def fig1_accuracy_bar(metrics_df, pairwise_df, save_path):
 
     # 계열 구분선: Raw | SimpleRAG | RAG
     raw_end    = sum(1 for m in models if m == 'Bandit' or '_raw' in m)
-    simple_end = sum(1 for m in models if m == 'Bandit' or '_raw' in m or '_simple_rag' in m)
+    simple_end = sum(1 for m in models if m == 'Bandit' or '_raw' in m or '_simple_rag' in m or (m.endswith('_rag') and '_rag_ts' not in m and '_simple' not in m))
     for pos, label in [(raw_end - 0.5, 'Baseline │ Simple RAG'),
                        (simple_end - 0.5, 'Simple RAG │ Proposed')]:
         if 0 < pos < len(models) - 1:

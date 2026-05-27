@@ -28,7 +28,8 @@ def save_report(result_dir: str, label: str,
                 m: dict | None = None) -> str:
     os.makedirs(result_dir, exist_ok=True)
     now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    path = os.path.join(result_dir, f'Eval_{label}_{now}.txt')
+    safe_label = label.replace('.', '-').replace(' ', '_')
+    path = os.path.join(result_dir, f'Eval_{safe_label}_{now}.txt')
 
     acc     = (correct / total * 100) if total else 0
     avg_t   = round(total_time / total, 2) if total else 0
@@ -52,7 +53,8 @@ def save_report(result_dir: str, label: str,
 def save_csv(result_dir: str, label: str, rows: list[dict]) -> str:
     os.makedirs(result_dir, exist_ok=True)
     now  = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    path = os.path.join(result_dir, f'Data_{label}_{now}.csv')
+    safe_label = label.replace('.', '-').replace(' ', '_')
+    path = os.path.join(result_dir, f'Data_{safe_label}_{now}.csv')
     with open(path, 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         w.writeheader()
