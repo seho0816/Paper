@@ -36,7 +36,7 @@ GROK_MODEL   = "grok-3-mini"
 TEST_DIR        = "py_dataset"
 KNOWLEDGE_DIR   = "knowledge"
 DB_DIR          = "rag_db"
-RESULT_DIR      = "result_int"
+RESULT_DIR      = "result"
 MITRE_JSON_PATH = os.path.join(KNOWLEDGE_DIR, "mitre_cwe_official.json")
 
 # ── ChromaDB ──────────────────────────────────────────────────

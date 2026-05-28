@@ -36,7 +36,7 @@ def main():
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_GROK_RAG_TS, evaluate)
+    run(MODEL_GROK_RAG_TS, evaluate, "grok_rag_ts")
 
 if __name__ == "__main__":
     main()

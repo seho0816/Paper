@@ -10,14 +10,21 @@ from utils.metrics import compute
 from utils.storage import make_row, save_report, save_csv
 
 
-def run(model_label: str, evaluate_fn: Callable) -> None:
+def run(model_label: str, evaluate_fn: Callable,
+        script_name: str = "") -> None:
     """
     표준 평가 루프.
 
     evaluate_fn 시그니처:
       (code: str, is_patch: bool) -> (predicted: str, elapsed: float)
       반환값 추가 있어도 무시 (튜플 앞 2개만 사용)
+
+    script_name: 저장 파일명에 사용할 스크립트 식별자
+      예) "gemini_rag", "llama_rag_ts" 등
+      비어있으면 model_label 사용 (기존 동작)
     """
+    # 파일명용 레이블: 스크립트명 우선, 없으면 model_label
+    file_label = script_name if script_name else model_label
     print(f"=== [{model_label}] 평가 시작 ===\n")
 
     files = sorted(f for f in os.listdir(TEST_DIR) if f.endswith('.py'))
@@ -64,8 +71,8 @@ def run(model_label: str, evaluate_fn: Callable) -> None:
         csv_data.append(make_row(model_label, fname, gt, pred, verdict, elapsed))
 
     m    = compute(csv_data)
-    rpt  = save_report(RESULT_DIR, model_label, total, correct, total_time, logs, m)
-    csv_ = save_csv(RESULT_DIR, model_label, csv_data)
+    rpt  = save_report(RESULT_DIR, file_label, total, correct, total_time, logs, m)
+    csv_ = save_csv(RESULT_DIR, file_label, csv_data)
 
     acc = correct / total * 100 if total else 0
     print(f"\n완료 | Accuracy:{acc:.1f}% ({correct}/{total})")

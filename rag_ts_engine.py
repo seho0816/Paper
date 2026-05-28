@@ -219,6 +219,7 @@ class RAGEngine:
                 f"--- [MITRE 공식 기준: {cwe}] ---\n"
                 f"공식명: {info.get('official_title', '')}\n"
                 f"추상화 수준: {info.get('abstraction', '')}\n"
+                f"취약점 매핑: {info.get('vulnerability_mapping', '')}\n"
                 f"공식 요약: {info.get('summary_ko', '')}\n"
                 f"공식 완화 방향: {info.get('mitigation_ko', '')}\n"
                 f"상위 CWE: {parent}\n"

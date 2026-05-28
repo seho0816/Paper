@@ -64,8 +64,8 @@ def main():
         csv_data.append(make_row(LABEL, fname, gt, pred_s, verdict, elapsed))
 
     m = compute(csv_data)
-    rpt = save_report(RESULT_DIR, LABEL, total, correct, total_time, logs, m)
-    csv_ = save_csv(RESULT_DIR, LABEL, csv_data)
+    rpt = save_report(RESULT_DIR, "bandit", total, correct, total_time, logs, m)
+    csv_ = save_csv(RESULT_DIR, "bandit", csv_data)
     acc = correct / total * 100 if total else 0
     print(f"\n완료 | Accuracy:{acc:.1f}% | P:{m['Precision']}% R:{m['Recall']}% F1:{m['F1']}%")
     print(f"  리포트:{rpt}\n  CSV:{csv_}")

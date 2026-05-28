@@ -32,7 +32,7 @@ def main():
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_GEMINI_SIMPLE_RAG, evaluate)
+    run(MODEL_GEMINI_SIMPLE_RAG, evaluate, "gemini_rag")
 
 if __name__ == "__main__":
     main()

@@ -31,7 +31,7 @@ def main():
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_LLAMA_SIMPLE_RAG, evaluate)
+    run(MODEL_LLAMA_SIMPLE_RAG, evaluate, "llama")
 
 if __name__ == "__main__":
     main()

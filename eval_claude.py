@@ -26,7 +26,7 @@ def main():
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_CLAUDE_RAW, evaluate)
+    run(MODEL_CLAUDE_RAW, evaluate, "claude")
 
 if __name__ == "__main__":
     main()

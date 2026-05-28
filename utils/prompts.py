@@ -3,25 +3,21 @@ utils/prompts.py
 프롬프트 생성 함수.
 
 [모델별 전략]
-  Gemini / Claude → 한국어 (build_rag / build_raw / build_patch)
-  Qwen / Llama    → 영어   (build_rag_en / build_raw_en / build_patch_en)
-                    소형 로컬 모델은 긴 한국어 지시에서 <CWE> 태그 미준수 현상 발생.
-                    영어 + 짧은 구조로 태그 준수율 대폭 향상.
-                    각 eval 스크립트에서 alias로 선택 사용:
-                      eval_qwen*.py  → build_raw_en as build_raw
-                      eval_llama*.py → build_raw_en (직접 사용)
+  Gemini / Claude / Grok → 한국어 (build_rag / build_raw / build_patch)
+  Qwen / Llama           → 영어   (build_rag_en / build_raw_en / build_patch_en)
+                           소형 로컬 모델은 긴 한국어 지시에서 <CWE> 태그 미준수 현상.
+                           영어 + 짧은 구조로 태그 준수율 향상.
 
-[환각 방지 - analyzer_gemini.py 반영]
-  allowed_cwes : rag_engine.get_context() 의 3번째 반환값.
-                 DB 검색 결과에서 수집된 CWE 번호만 최종 답으로 허용.
-                 → DB 범위 밖 CWE를 모델이 임의로 확정하는 것을 차단.
+[analyzer_gemini.py 기반 업데이트]
+  CWE 분류 규칙 10개 조항으로 확장 (친구 analyzer_gemini.py 기준)
+  DB 근거 제한 규칙 5개 조항으로 강화
+  CWE-639 판정 조건 명시
 """
 
 # ══════════════════════════════════════════════════════════════
 # 공통 블록 — 한국어
 # ══════════════════════════════════════════════════════════════
 
-# (analyzer_gemini.py)의 CWE 분류 우선순위 규칙 전체 반영
 _CWE_KO = """
 [CWE 분류 우선순위 규칙]
 1. 참고 지식에 여러 CWE가 포함된 경우 사용자 코드와 가장 직접적으로 일치하는 CWE를 우선 후보로 삼으세요.
@@ -30,6 +26,11 @@ _CWE_KO = """
 3. 최종 CWE는 "어떻게 고쳤는가"가 아니라 "어떤 취약 원인이 실제로 발생했는가"를 기준으로 선택하세요.
 4. 여러 독립 취약점이 존재하면 하나로 합치지 말고 각각의 최종 CWE를 분리해서 작성하세요.
 5. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하고, 근거가 부족한 CWE는 "가능성 있음" 수준으로만 언급하세요.
+6. 함수명·변수명·필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요. 코드에 명시된 사실만 근거로 삼으세요.
+7. CWE-639를 최종 CWE로 판정하려면: 객체 식별자가 외부 사용자 입력(request.args, request.json, URL 파라미터 등)에서 유입되고, 소유권·권한 검증 없이 객체를 조회·수정·삭제하는 흐름이 코드에서 명확히 확인되어야 합니다.
+8. 단순히 함수 매개변수 이름이 user_id, order_id 등이라는 이유만으로 사용자 통제 식별자라고 단정하지 마세요.
+9. 최종 출력에는 반드시 최종 CWE, 관련/상위 CWE, 최종 CWE로 판단한 이유를 분리해서 작성하세요.
+10. 보안 개선 방법이 특정 통제를 포함한다는 이유만으로 최종 CWE를 변경하지 마세요.
 """.strip()
 
 _OUT_KO = """
@@ -69,7 +70,6 @@ _PATCH_OUT_KO = """
 안전한 코드라면 반드시 <CWE>None</CWE>을 출력하세요.
 """.strip()
 
-
 # ══════════════════════════════════════════════════════════════
 # 공통 블록 — 영어 (Qwen / Llama 로컬 모델용, 간결하게 유지)
 # ══════════════════════════════════════════════════════════════
@@ -80,6 +80,7 @@ _CWE_EN = """
 2. Do not auto-prefer child CWEs; only use them when the root cause clearly fits.
 3. Base the final CWE on what went wrong, not how it was fixed.
 4. List each independent vulnerability separately.
+5. Do not infer attacker control from variable names alone; verify from actual code flow.
 """.strip()
 
 _OUT_EN = """
@@ -105,19 +106,19 @@ Safe code → <CWE>None</CWE>
 
 
 # ══════════════════════════════════════════════════════════════
-# 내부 헬퍼 — DB 근거 제한 블록
+# 내부 헬퍼 — DB 근거 제한 블록 (analyzer_gemini.py 규칙 반영)
 # ══════════════════════════════════════════════════════════════
 
 def _db_limit_ko(allowed_cwes: str) -> str:
-    """allowed_cwes가 있을 때만 DB 범위 제한 블록을 생성한다."""
     if not allowed_cwes or allowed_cwes == "없음":
         return ""
     return f"""
 [DB 근거 제한 규칙]
-1. 최종 CWE는 반드시 아래 [허용 CWE 범위]에 포함된 것만 확정할 수 있습니다.
-2. 목록 밖 CWE를 최종 취약점으로 선언하지 마세요.
-3. 상위/관련 CWE는 보조 설명으로만 언급하세요.
-4. DB 지식으로 직접 설명할 수 없는 문제는 최종 취약점으로 확정하지 마세요.
+1. 최종 CWE로 확정할 수 있는 CWE는 반드시 아래 [허용 CWE 범위]에 포함된 것만 허용됩니다.
+2. 위 목록에 없는 CWE를 최종 취약점으로 확정하거나 직접 근거로 개선 코드를 생성하지 마세요.
+3. 상위/관련/하위 후보 CWE는 보조 설명 수준에서만 언급하세요. 반드시 "관련 CWE", "상위 CWE", "후보 CWE"임을 명시하세요.
+4. 제공된 참고 지식으로 직접 설명할 수 없는 문제는 최종 취약점으로 확정하지 마세요.
+5. 검색된 DB 지식과 사용자 코드의 취약 원인이 직접 대응하지 않는다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."라고만 답변하세요.
 
 [허용 CWE 범위]
 {allowed_cwes}
@@ -131,11 +132,12 @@ def _db_limit_en(allowed_cwes: str) -> str:
 [DB Scope]
 Only confirm a final CWE from: {allowed_cwes}
 Do not assert any CWE outside this list as a final finding.
+If knowledge does not directly match the code, report no vulnerability.
 """.strip()
 
 
 # ══════════════════════════════════════════════════════════════
-# 한국어 프롬프트 (Gemini / Qwen)
+# 한국어 프롬프트 (Gemini / Claude / Grok)
 # ══════════════════════════════════════════════════════════════
 
 def build_rag(code: str, rag_ctx: str, mitre_ctx: str,
@@ -143,20 +145,25 @@ def build_rag(code: str, rag_ctx: str, mitre_ctx: str,
     """RAG 있음, 한국어."""
     db_block = _db_limit_ko(allowed_cwes)
     return f"""당신은 파이썬 보안 전문가입니다.
-아래 [참고 지식]을 바탕으로 [분석 대상 코드]의 취약점을 분석하세요.
+사용자가 입력한 코드 전체를 분석하세요.
 
-[지시사항]
-1. DB 예제 코드를 그대로 복사하지 마세요. 사용자 코드 맥락에 맞게 패치하세요.
-2. 참고 지식과 관련 없으면 취약점 없음으로 판단하세요.
-3. 가장 직접적인 원인 하나를 최종 CWE로 선택하세요.
+[Hallucination 방지]
+1. 제공된 [참고 지식(DB)]을 복합적으로 참조하여 분석하세요.
+2. [참고 지식(DB)]이 비어있거나 무관하다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."라고만 답변하세요.
+3. DB 해결책 예제 코드를 그대로 복사하지 마세요. 사용자 코드 맥락에 맞게 패치하세요.
 4. 아래 출력 템플릿을 반드시 그대로 따르세요.
+
+[지식 사용 규칙]
+1. 참고 지식은 코드 패턴 탐지와 맞춤형 개선 코드 작성에 사용하세요.
+2. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하세요.
+3. 근거가 부족한 CWE는 최종 CWE로 단정하지 말고 "가능성 있음" 수준으로만 언급하세요.
 
 {_CWE_KO}
 
 [MITRE 공식 기준]
 {mitre_ctx}
 
-[Security Knowledge Base]
+[참고 지식(Security Knowledge Base)]
 {rag_ctx}
 
 {db_block}
@@ -218,7 +225,7 @@ def build_patch(code: str, rag_ctx: str = "", mitre_ctx: str = "") -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# 영어 프롬프트 (Llama 3.2 전용)
+# 영어 프롬프트 (Qwen / Llama 로컬 모델용)
 # ══════════════════════════════════════════════════════════════
 
 def build_rag_en(code: str, rag_ctx: str, mitre_ctx: str,

@@ -23,4 +23,4 @@ def evaluate(code, is_patch=False):
     return (predicted_cwe(text), round(time.time()-start, 2))
 
 if __name__ == "__main__":
-    run(MODEL_GEMINI_RAW, evaluate)
+    run(MODEL_GEMINI_RAW, evaluate, "gemini")

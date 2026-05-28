@@ -35,7 +35,7 @@ def main():
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_CLAUDE_SIMPLE_RAG, evaluate)
+    run(MODEL_CLAUDE_SIMPLE_RAG, evaluate, "claude_rag")
 
 if __name__ == "__main__":
     main()

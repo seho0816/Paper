@@ -22,7 +22,7 @@ while True:
         continue
 
     # 1. result 폴더가 없으면 자동으로 생성
-    os.makedirs("result", exist_ok=True)
+    os.makedirs("result_analyze", exist_ok=True)
 
     # 2. 원본 파일명 추출 및 저장할 파일명 조립
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -30,7 +30,7 @@ while True:
     base_name = os.path.basename(target_file).replace('.py', '') 
     
     # 최종 파일명: result/result_bandit_CWE-942_testcode_20260422_151045.txt
-    filename = os.path.join("result", f"result_bandit_{base_name}_{now}.txt")
+    filename = os.path.join("result_analyze", f"bandit_{base_name}_{now}.txt")
 
     # Bandit 명령어 조립 및 실행
     print(f"\n🔍 Bandit 스캔 시작: {target_file}")
