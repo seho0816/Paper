@@ -1,215 +1,192 @@
-import os
 import chromadb
 
-# 1. DB 경로 설정
-current_dir = os.path.dirname(os.path.abspath(__file__))
-db_path = os.path.join(current_dir, "rag_db")
+CHROMA_DIR = "./analyzer/rag_db"
+COLLECTION_NAME = "python_security_lessons"
 
-print("=== Snyk의 'Uncontrolled Recursion(CWE-674)' 지식을 DB에 저장합니다 ===")
+CWE_ID = "cwe_759_unsalted_password_hash_sha256"
 
-# 2. ChromaDB 클라이언트 연결
-try:
-    client = chromadb.PersistentClient(path=db_path)
-except Exception as e:
-    print(f"DB 초기화 실패: {e}")
-    exit()
-
-# 3. 컬렉션 불러오기
-collection_name = "python_security_lessons"
-collection = client.get_or_create_collection(name=collection_name)
-# 2. ChromaDB 클라이언트 연결
-try:
-    client = chromadb.PersistentClient(path=db_path)
-except Exception as e:
-    print(f"DB 초기화 실패: {e}")
-    exit()
-
-# 3. 컬렉션 불러오기
-collection_name = "python_security_lessons"
-collection = client.get_or_create_collection(name=collection_name)
-
-# ==========================================
-# 📚 [Snyk: Uncontrolled Recursion]
-# ==========================================
-
-uncontrolled_recursion_doc = '''
-import os
-from flask import Flask, request, jsonify
+document = """
+from flask import Flask, request
+import hashlib
+import sqlite3
 
 app = Flask(__name__)
 
-# 🚨 취약점: 제어되지 않는 재귀 호출 (CWE-674)
-# 사용자 입력으로 받은 start_path부터 디렉터리를 재귀 탐색하지만,
-# 최대 깊이 제한이나 방문한 실제 경로/노드 추적이 없음
-# 심볼릭 링크 또는 순환 디렉터리 구조가 있으면 무한 재귀, RecursionError, CPU/RAM 고갈이 발생할 수 있음
-@app.route('/api/index-files', methods=['POST'])
-def index_files():
-    start_path = request.json.get("path")
+@app.route("/signup", methods=["POST"])
+def signup():
+    username = request.form.get("username")
+    password = request.form.get("password")
 
-    indexed_files = []
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
 
-    def crawl_directory(path):
-        for name in os.listdir(path):
-            full_path = os.path.join(path, name)
+    conn = sqlite3.connect("app.db")
+    cursor = conn.cursor()
 
-            if os.path.isdir(full_path):
-                crawl_directory(full_path)
-            else:
-                indexed_files.append(full_path)
-
-    crawl_directory(start_path)
-
-    return jsonify({
-        "indexed_count": len(indexed_files),
-        "files": indexed_files
-    })
-'''
-
-uncontrolled_recursion_meta = {
-    "cwe": "CWE-674",
-    "full_text": '''
-[취약점 명칭] Uncontrolled Recursion (제어되지 않는 재귀 호출)
-[CWE 번호] CWE-674 (제어되지 않는 재귀)
-
-[상세 설명]
-Uncontrolled Recursion은 재귀 함수가 종료 조건에 도달하지 못하거나, 순환 구조를 탐색하면서 이미 방문한 노드·경로를 다시 방문해 자기 자신을 반복 호출할 때 발생하는 취약점입니다. 이 경우 호출 스택이 계속 증가하여 RecursionError, CPU 사용량 증가, 메모리 고갈, 서비스 거부(DoS)로 이어질 수 있습니다.
-
-본 지식은 CWE-674의 모든 재귀 관련 문제를 포괄적으로 다루는 것이 아니라, Snyk의 Uncontrolled Recursion 레슨에서 제시한 취약 원리를 기반으로, 사용자 입력 또는 외부 환경이 제공한 디렉터리·트리·그래프·중첩 데이터 구조를 재귀적으로 탐색하면서 최대 깊이 제한, 방문 기록, 순환 탐지 없이 자기 자신을 반복 호출하는 Python 코드 패턴을 중심으로 저장합니다.
-
-예를 들어 파일 인덱싱 기능에서 사용자가 전달한 시작 경로를 기준으로 `os.listdir()`로 하위 항목을 탐색하고, `os.path.isdir()`가 참이면 무조건 `crawl_directory(full_path)`를 다시 호출하는 구조가 있을 수 있습니다. 이때 심볼릭 링크가 부모 디렉터리나 이미 방문한 디렉터리를 다시 가리키면, 함수는 같은 구조를 반복해서 내려가며 호출 스택과 시스템 자원을 계속 소비할 수 있습니다.
-
-Snyk 레슨에서도 순환 심볼릭 링크를 포함한 디렉터리 구조에서 프로그램이 같은 경로를 이미 방문했는지 알지 못한 채 재귀 호출을 반복하는 상황을 설명합니다.
-
-단순히 함수가 자기 자신을 호출한다는 이유만으로 CWE-674로 판단해서는 안 됩니다. 이 패턴은 외부 입력 또는 공격자가 조작 가능한 디렉터리, 트리, 그래프, 중첩 데이터 구조를 따라 재귀적으로 탐색하면서, 최대 깊이 제한이나 방문한 노드·경로 추적 없이 자기 자신을 반복 호출하는 경우를 중심으로 판단합니다.
-
-명확한 base case가 있고, 입력 크기나 재귀 깊이가 제한되며, 이미 방문한 노드·경로·inode·realpath 등을 추적하여 순환 구조를 차단하는 경우에는 본 지식과 직접 대응하지 않습니다. 또한 고정된 내부 데이터에 대한 짧고 제한된 재귀, 피보나치 예제처럼 학습용으로 종료 조건이 명확한 재귀 함수는 본 지식과 직접 대응하지 않습니다.
-
-CWE-400은 재귀로 인해 발생할 수 있는 자원 고갈 결과를 포괄하는 관련 후보이고, CWE-770은 제한 없는 리소스 사용의 넓은 범주입니다. 그러나 본 지식은 재귀 호출의 종료 조건·깊이 제한·순환 탐지 부재가 직접 원인이므로 CWE-674를 대표 CWE로 저장합니다.
-
-[해결책 및 개선 코드]
-재귀적으로 외부 구조를 탐색할 때는 반드시 최대 깊이 제한과 방문 기록을 함께 사용해야 합니다. 깊이 제한은 비정상적으로 깊은 구조로 인한 호출 스택 증가를 막고, 방문 기록은 심볼릭 링크나 그래프 순환처럼 같은 노드를 반복 방문하는 문제를 차단합니다.
-
-Snyk 레슨도 안전한 디렉터리 크롤러는 깊이 제한과 방문 inode 집합을 함께 사용하여 매우 깊은 구조와 순환 구조를 모두 방어해야 한다고 설명합니다.
-
-**[안전한 코드 예시 (깊이 제한 + realpath 방문 기록)]**
-```python
-import os
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-MAX_DEPTH = 20
-
-@app.route('/api/index-files-secure', methods=['POST'])
-def index_files_secure():
-    start_path = request.json.get("path")
-
-    if not start_path:
-        return jsonify({"error": "path가 필요합니다."}), 400
-
-    indexed_files = []
-    visited_paths = set()
-
-    def crawl_directory_secure(path, depth):
-        # 💡 안전한 로직 1:
-        # 재귀 깊이가 허용 범위를 넘으면 중단
-        if depth > MAX_DEPTH:
-            return
-
-        real_path = os.path.realpath(path)
-
-        # 💡 안전한 로직 2:
-        # 이미 방문한 실제 경로라면 순환 구조로 보고 중단
-        if real_path in visited_paths:
-            return
-
-        visited_paths.add(real_path)
-
-        try:
-            entries = os.listdir(real_path)
-        except (OSError, PermissionError):
-            return
-
-        for name in entries:
-            full_path = os.path.join(real_path, name)
-
-            if os.path.isdir(full_path):
-                crawl_directory_secure(full_path, depth + 1)
-            else:
-                indexed_files.append(full_path)
-
-    crawl_directory_secure(start_path, 0)
-
-    return jsonify({
-        "indexed_count": len(indexed_files),
-        "files": indexed_files
-    })
-[안전한 코드 예시 (inode 기반 순환 탐지)]
-import os
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-MAX_DEPTH = 20
-
-@app.route('/api/index-files-inode-secure', methods=['POST'])
-def index_files_inode_secure():
-    start_path = request.json.get("path")
-
-    if not start_path:
-        return jsonify({"error": "path가 필요합니다."}), 400
-
-    indexed_files = []
-    visited_inodes = set()
-
-    def crawl_directory_inode_secure(path, depth):
-        if depth > MAX_DEPTH:
-            return
-
-        try:
-            stat_info = os.stat(path)
-        except (OSError, PermissionError):
-            return
-
-        node_key = (stat_info.st_dev, stat_info.st_ino)
-
-        # 💡 안전한 로직:
-        # 같은 device/inode 조합을 다시 방문하면 순환 구조로 보고 중단
-        if node_key in visited_inodes:
-            return
-
-        visited_inodes.add(node_key)
-
-        try:
-            entries = os.listdir(path)
-        except (OSError, PermissionError):
-            return
-
-        for name in entries:
-            full_path = os.path.join(path, name)
-
-            if os.path.isdir(full_path):
-                crawl_directory_inode_secure(full_path, depth + 1)
-            else:
-                indexed_files.append(full_path)
-
-    crawl_directory_inode_secure(start_path, 0)
-
-    return jsonify({
-        "indexed_count": len(indexed_files),
-        "files": indexed_files
-    })
-    '''
-}
-try:
-    collection.upsert(
-    documents=[uncontrolled_recursion_doc],
-    metadatas=[uncontrolled_recursion_meta],
-    ids=["snyk_lesson_uncontrolled_recursion_directory_crawler"]
+    cursor.execute(
+        "INSERT INTO users(username, password_hash) VALUES (?, ?)",
+        (username, password_hash)
     )
 
-    print("\n✅ 'Uncontrolled Recursion(CWE-674)' 지식이 성공적으로 DB에 저장되었습니다!")
-    print(f"현재 DB 총 지식 수: {collection.count()}개")
+    conn.commit()
+    conn.close()
 
-except Exception as e:
-    print(f"\n⚠️ 데이터 저장 중 오류가 발생했습니다: {e}")
+    return "signup complete"
+""".strip()
+
+full_text = """
+[취약점 명칭]
+Salt 없는 비밀번호 해시 저장
+
+[CWE 번호]
+CWE-759
+
+[상세 설명]
+사용자 비밀번호를 저장할 때 salt 없이 단방향 해시 함수만 적용하면,
+동일한 비밀번호는 항상 동일한 해시값을 가지게 된다.
+이 경우 공격자는 레인보우 테이블, 사전 공격, 대량 대입 공격을 통해 원문 비밀번호를 추측하기 쉬워진다.
+SHA-256처럼 일반적으로 안전한 해시 함수라도, 비밀번호 저장 용도로 salt와 반복 연산 없이 직접 사용하면 부적절하다.
+
+[탐지 범위]
+- request.form, request.json 등으로 받은 password 값을 hashlib.sha256, hashlib.md5, hashlib.sha1 등으로 직접 해시하여 저장하는 경우
+- 비밀번호마다 고유한 salt를 생성하지 않고 단순 해시값만 DB에 저장하는 경우
+- PBKDF2, bcrypt, scrypt, Argon2, werkzeug.generate_password_hash 같은 비밀번호 저장 전용 함수를 사용하지 않는 경우
+- 예: password_hash = hashlib.sha256(password.encode()).hexdigest()
+- 예: password_hash = hashlib.md5(password.encode()).hexdigest()
+- 예: cursor.execute(..., (username, password_hash))
+
+[잡지 말아야 할 코드]
+- werkzeug.security.generate_password_hash(password)를 사용하는 코드
+- bcrypt.hashpw(password, bcrypt.gensalt())를 사용하는 코드
+- hashlib.pbkdf2_hmac()처럼 salt와 충분한 반복 횟수를 사용하는 코드
+- argon2, scrypt 등 비밀번호 저장 전용 알고리즘을 사용하는 코드
+- 비밀번호가 아닌 파일 체크섬, 캐시 키, 중복 확인용 해시는 이 문서에서 직접 탐지하지 않는다.
+- MD5/SHA1 같은 약한 해시를 토큰, 서명, 무결성 검증 등 일반 보안 목적으로 사용하는 경우는 CWE-328로 분류한다.
+- 비밀번호를 아예 해시하지 않고 평문으로 저장하는 경우는 CWE-312로 분류한다.
+
+[취약 코드 예시]
+from flask import Flask, request
+import hashlib
+import sqlite3
+
+app = Flask(__name__)
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    username = request.form.get("username")
+    password = request.form.get("password")
+
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    conn = sqlite3.connect("app.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO users(username, password_hash) VALUES (?, ?)",
+        (username, password_hash)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return "signup complete"
+
+[개선 코드 예시]
+from flask import Flask, request
+import sqlite3
+from werkzeug.security import generate_password_hash
+
+app = Flask(__name__)
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    username = request.form.get("username")
+    password = request.form.get("password")
+
+    password_hash = generate_password_hash(password)
+
+    conn = sqlite3.connect("app.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO users(username, password_hash) VALUES (?, ?)",
+        (username, password_hash)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return "signup complete"
+
+[패치 원리]
+비밀번호 저장에는 단순 해시 함수가 아니라 salt와 반복 연산을 포함한 비밀번호 저장 전용 알고리즘을 사용해야 한다.
+각 비밀번호마다 고유한 salt를 적용하면 동일한 비밀번호도 서로 다른 해시값을 갖게 되어 레인보우 테이블 공격을 어렵게 만든다.
+또한 반복 연산 또는 비용 인자를 적용하면 공격자가 대량의 후보 비밀번호를 빠르게 대입하기 어려워진다.
+Werkzeug의 generate_password_hash, bcrypt, scrypt, Argon2, PBKDF2 같은 방식은 이러한 방어 요소를 제공한다.
+
+[검증 등급]
+B
+
+[참고 출처]
+- MITRE CWE-759: Use of a One-Way Hash without a Salt
+- OWASP Password Storage Cheat Sheet
+- Werkzeug security password hashing documentation
+""".strip()
+
+
+def main():
+    client = chromadb.PersistentClient(path=CHROMA_DIR)
+    collection = client.get_collection(COLLECTION_NAME)
+
+    print(f"현재 전체 문서 수: {collection.count()}")
+
+    existing = collection.get(
+        where={"cwe": "CWE-759"},
+        include=["documents", "metadatas"]
+    )
+
+    print(f"기존 CWE-759 문서 수: {len(existing['ids'])}")
+
+    if existing["ids"]:
+        target_id = existing["ids"][0]
+        print(f"수정 대상 ID: {target_id}")
+
+        collection.update(
+            ids=[target_id],
+            documents=[document],
+            metadatas=[{
+                "cwe": "CWE-759",
+                "full_text": full_text
+            }]
+        )
+
+        print("기존 CWE-759 문서를 salt 없는 비밀번호 해시 저장 패턴으로 수정했습니다.")
+
+    else:
+        collection.add(
+            ids=[CWE_ID],
+            documents=[document],
+            metadatas=[{
+                "cwe": "CWE-759",
+                "full_text": full_text
+            }]
+        )
+
+        print("CWE-759 문서가 없어 새로 추가했습니다.")
+
+    check = collection.get(
+        where={"cwe": "CWE-759"},
+        include=["documents", "metadatas"]
+    )
+
+    print("\n=== 수정 후 CWE-759 확인 ===")
+    for i, doc_id in enumerate(check["ids"]):
+        print(f"ID: {doc_id}")
+        print("DOCUMENT:")
+        print(check["documents"][i][:700])
+        print("\nFULL_TEXT:")
+        print(check["metadatas"][i]["full_text"][:1200])
+        print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
