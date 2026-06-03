@@ -250,6 +250,140 @@ def parse_json_object_from_text(text):
 
     return json.loads(match.group(0))
 
+def extract_section_text(full_text, section_name):
+    """
+    full_text에서 [취약점 명칭] 같은 섹션 값을 추출합니다.
+    """
+    pattern = rf"\[{re.escape(section_name)}\]\s*(.*?)(?=\n\[[^\]]+\]|\Z)"
+    match = re.search(pattern, full_text, re.DOTALL)
+
+    if not match:
+        return ""
+
+    return match.group(1).strip()
+
+
+def build_evidence_lookup(evidence_items):
+    """
+    evidence_id 기준으로 evidence item을 찾기 쉽게 변환합니다.
+    """
+    return {
+        item["id"]: item
+        for item in evidence_items
+    }
+
+
+def group_matched_results_by_cwe(matched_results, evidence_items):
+    """
+    직접 대응 검증 결과를 CWE 기준으로 묶습니다.
+
+    반환 예:
+    {
+        "CWE-327": {
+            "count": 2,
+            "items": [...]
+        }
+    }
+    """
+    evidence_by_id = build_evidence_lookup(evidence_items)
+    grouped = {}
+
+    for match in matched_results:
+        evidence_id = match.get("evidence_id")
+        evidence = evidence_by_id.get(evidence_id)
+
+        if not evidence:
+            continue
+
+        pattern_name = extract_section_text(evidence["doc"], "취약점 명칭")
+        if not pattern_name:
+            pattern_name = evidence_id
+
+        for cwe in match.get("matched_cwes", []):
+            grouped.setdefault(cwe, [])
+
+            grouped[cwe].append({
+                "evidence_id": evidence_id,
+                "cwe": cwe,
+                "pattern_name": pattern_name,
+                "reason": match.get("reason", ""),
+                "best_distance": evidence.get("best_distance", 999),
+                "chunks": evidence.get("chunks", []),
+                "doc": evidence.get("doc", ""),
+                "evidence": evidence,
+            })
+
+    # CWE별로 유사도 거리 낮은 순 정렬
+    for cwe in grouped:
+        grouped[cwe].sort(key=lambda x: x.get("best_distance", 999))
+
+    return grouped
+
+
+def print_grouped_matched_results(matched_results, evidence_items, show_detail=False):
+    """
+    기존 E1, E2, E3 나열 방식 대신 CWE 기준 요약 출력.
+    show_detail=True면 각 evidence 상세도 같이 출력합니다.
+    """
+    grouped = group_matched_results_by_cwe(matched_results, evidence_items)
+
+    if not grouped:
+        print("직접 대응한다고 판정된 DB 지식이 없습니다.")
+        print("================================================\n")
+        return
+
+    for cwe, items in grouped.items():
+        representative = items[0]
+
+        print(f"✅ {cwe} 직접 대응 확인")
+        print(f"   - 매칭 근거 수: {len(items)}개")
+        print(f"   - 대표 패턴: {representative['pattern_name']}")
+        print(f"   - 대표 사유: {representative['reason']}")
+
+        if len(items) > 1:
+            print("   - 보조 패턴:")
+            for item in items[1:]:
+                print(
+                    f"     · {item['pattern_name']} "
+                    f"(근거 {item['evidence_id']}, 거리 {item['best_distance']:.4f})"
+                )
+
+        if show_detail:
+            print("   - 상세 근거:")
+            for item in items:
+                print(
+                    f"     · {item['evidence_id']} / "
+                    f"{item['pattern_name']} / "
+                    f"거리 {item['best_distance']:.4f} / "
+                    f"청크 {item['chunks']}"
+                )
+
+        print()
+
+
+def select_representative_verified_items(matched_results, evidence_items, max_per_cwe=2):
+    """
+    AI 분석 프롬프트에 넘길 DB 지식을 CWE별 대표 근거만 남깁니다.
+    같은 CWE에서 너무 많은 DB 문서가 들어가 중복 분석되는 것을 방지합니다.
+    """
+    grouped = group_matched_results_by_cwe(matched_results, evidence_items)
+
+    selected = []
+    selected_ids = set()
+
+    for cwe, items in grouped.items():
+        for item in items[:max_per_cwe]:
+            evidence = item["evidence"]
+            evidence_id = evidence["id"]
+
+            if evidence_id in selected_ids:
+                continue
+
+            selected.append(evidence)
+            selected_ids.add(evidence_id)
+
+    return selected
+
 def verify_retrieved_evidences(genai_client, user_code, evidence_items):
     """
     RAG로 검색된 DB 지식이 사용자 코드의 취약 원인과
@@ -550,13 +684,16 @@ while True:
     evidence_items = []
 
     for idx, evidence in enumerate(retrieved_evidence_map.values(), start=1):
+        pattern_name = extract_section_text(evidence["doc"], "취약점 명칭")
+
         evidence_items.append({
             "id": f"E{idx}",
             "doc": evidence["doc"],
             "cwes": sorted(evidence["cwes"]),
+            "pattern_name": pattern_name,
             "best_distance": evidence["best_distance"],
             "chunks": sorted(evidence["chunks"])
-        })
+    })
 
     print("\n[3/4] 🧾 검색된 DB 지식과 사용자 코드의 직접 대응 여부를 검증합니다...")
 
@@ -570,33 +707,40 @@ while True:
     verified_candidate_cwes = verification_result["verified_cwes"]
     matched_results = verification_result["matched_results"]
 
-    print("\n=== 🧾 [디버그] DB 근거 직접 대응 검증 결과 ===")
-    if matched_results:
-        for item in matched_results:
-            print(
-               f"✅ {item['evidence_id']} "
-                f"매칭 CWE={item['matched_cwes']} "
-                f"사유={item['reason']}"
-            )
-    else:
-        print("직접 대응한다고 판정된 DB 지식이 없습니다.")
-        print("================================================\n")
+    verified_items_for_prompt = select_representative_verified_items(
+        matched_results,
+        evidence_items,
+        max_per_cwe=2
+    )
 
-    if not verified_items or not verified_candidate_cwes:
+    print("\n=== 🧾 [디버그] DB 근거 직접 대응 검증 결과 ===")
+    print_grouped_matched_results(
+        matched_results,
+        evidence_items,
+        show_detail=False
+    )
+
+    if not verified_items_for_prompt or not verified_candidate_cwes:
         print("\n================ [AI 분석 결과] ================")
         print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
         print("================================================\n")
         continue
 
     print(
-        f"\n[4/4] 🧠 {len(verified_items)}개의 직접 대응 DB 지식을 바탕으로 "
+        f"\n[4/4] 🧠 {len(verified_items_for_prompt)}개의 대표 DB 지식을 바탕으로 "
         "AI 정밀 분석을 시작합니다..."
     )
 
     retrieved_context = "\n\n".join(
         [
-            f"--- [검증 통과 DB 지식 {idx+1}] ---\n{item['doc']}"
-            for idx, item in enumerate(verified_items)
+            f"""--- [검증 통과 DB 지식 {idx+1}] ---
+            패턴명: {item.get('pattern_name', '')}
+            CWE: {", ".join(item.get('cwes', []))}
+            최소 유사도 거리: {item.get('best_distance', 999):.4f}
+            매칭 청크: {item.get('chunks', [])}
+
+            {item['doc']}"""
+                    for idx, item in enumerate(verified_items_for_prompt)
         ]
     )
 
