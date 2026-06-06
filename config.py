@@ -20,10 +20,15 @@ MODEL_CLAUDE_SIMPLE_RAG= "claude-sonnet-4-5_simple_rag"
 MODEL_GROK_SIMPLE_RAG  = "grok-3-mini_simple_rag"
 
 MODEL_QWEN_RAG_TS      = "qwen2.5-coder_rag_ts"
+MODEL_QWEN_RAG         = MODEL_QWEN_RAG_TS
 MODEL_LLAMA_RAG_TS     = "llama3.2_rag_ts"
+MODEL_LLAMA_RAG        = MODEL_LLAMA_RAG_TS
 MODEL_GEMINI_RAG_TS    = "gemini-2.5-pro_rag_ts"
+MODEL_GEMINI_RAG       = MODEL_GEMINI_RAG_TS
 MODEL_CLAUDE_RAG_TS    = "claude-sonnet-4-5_rag_ts"
+MODEL_CLAUDE_RAG       = MODEL_CLAUDE_RAG_TS
 MODEL_GROK_RAG_TS      = "grok-3-mini_rag_ts"
+MODEL_GROK_RAG         = MODEL_GROK_RAG_TS
 
 # ── 실제 모델 ID ──────────────────────────────────────────────
 OLLAMA_QWEN  = "qwen2.5-coder"

@@ -63,7 +63,12 @@ def run(model_label: str, evaluate_fn: Callable,
             tag = "TN(패치→None)" if is_patch else "TP"
             print(f"✅ {ox} [{tag}] | {elapsed}s")
         else:
-            tag = "FP(패치→CWE)" if is_patch else "FP"
+            if is_patch:
+                tag = "FP(패치→CWE)"
+            elif pred in ('None', 'UNKNOWN', 'SKIPPED'):
+                tag = "FN(미탐)"   # RAG 미매칭 or 태그 미출력 → 미탐
+            else:
+                tag = "FP(오분류)" # 취약→틀린CWE
             print(f"❌ {ox} [{tag}] | GT:{gt_str} → Pred:{pred} | {elapsed}s")
 
         total_time += elapsed
