@@ -9,3 +9,4 @@ def ldap_login(conn: Connection):
     conn.search("ou=people,dc=example,dc=com", search_filter)
 
     return len(conn.entries) == 1
+    

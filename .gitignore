@@ -3,3 +3,5 @@ rag_db/
 __pycache__/
 result/
 result_analyze/
+py_dataset_fail/
+patch_log/

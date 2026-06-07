@@ -17,8 +17,8 @@ def _cwes_from_name(filename: str) -> list[str]:
       CWE-XXX_CWE-YYY  : 두 번째 CWE 명시
     """
     base = os.path.basename(filename)
-    explicit  = re.findall(r'CWE-(\d{3,4})', base, re.IGNORECASE)
-    after_sep = re.findall(r'CWE-\d{3,4}[_,](\d{3,4})', base, re.IGNORECASE)
+    explicit  = re.findall(r'CWE-(\d{1,4})', base, re.IGNORECASE)
+    after_sep = re.findall(r'CWE-\d{1,4}[_,](\d{1,4})', base, re.IGNORECASE)
     seen: list[str] = []
     for n in explicit + after_sep:
         cwe = f"CWE-{n}"
@@ -53,7 +53,7 @@ def predicted_cwe(result_text: str) -> str:
     raw = matches[-1].strip()
     if raw.lower() == 'none':
         return "None"
-    m = re.search(r'(\d{3,4})', raw)
+    m = re.search(r'(\d{1,4})', raw)
     return f"CWE-{m.group(1)}" if m else "UNKNOWN"
 
 

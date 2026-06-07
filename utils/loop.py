@@ -27,7 +27,17 @@ def run(model_label: str, evaluate_fn: Callable,
     file_label = script_name if script_name else model_label
     print(f"=== [{model_label}] 평가 시작 ===\n")
 
-    files = sorted(f for f in os.listdir(TEST_DIR) if f.endswith('.py'))
+    # 완성된 쌍(test+patch 모두 있는)만 평가 → 클래스 균형 보장
+    _all_files = set(os.listdir(TEST_DIR))
+    def _has_pair(fname):
+        import re as _re
+        patch = _re.sub(r'test(\d*)\.py$', r'patch\1.py', fname, flags=_re.IGNORECASE)
+        return patch in _all_files
+    files = sorted(
+        f for f in _all_files
+        if f.endswith('.py') and not f.startswith('d.')
+        and (_has_pair(f) or 'patch' in f.lower())
+    )
     if not files:
         print(f"'{TEST_DIR}' 에 .py 파일이 없습니다."); return
 

@@ -65,5 +65,6 @@ SIMPLE_RAG_CHUNK_LINES = 20
 OLLAMA_OPTIONS = {
     "num_ctx":     4096,
     "num_predict": 1200,
+    "temperature": 0.0,
 }
 OLLAMA_MAX_RETRIEVAL_K = 3

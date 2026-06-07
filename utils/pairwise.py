@@ -26,7 +26,9 @@ def _pair_key(fname: str) -> str:
     """
     base = os.path.basename(fname)
     stem = base[:-3] if base.endswith('.py') else base
-    stem = re.sub(r'[_](?:test|patch)$', '', stem, flags=re.IGNORECASE)
+    # _test, _test2, _patch, _patch2 등 suffix(+선택적 숫자) 제거
+    # test2 ↔ patch2 가 같은 키가 되도록 숫자도 함께 제거
+    stem = re.sub(r'[_](?:test|patch)\d*$', '', stem, flags=re.IGNORECASE)
 
     # 쉼표 구분 다중 CWE 정규화: "CWE-117,532" → "CWE-117_CWE-532"
     def _normalize(s):
@@ -35,7 +37,7 @@ def _pair_key(fname: str) -> str:
             rest  = m.group(2).split(',')
             parts = [f"CWE-{first}"] + [f"CWE-{n.strip()}" for n in rest if n.strip()]
             return "_".join(sorted(set(parts)))
-        return re.sub(r'CWE-(\d{3,4})((?:,\d{3,4})+)', repl, s, flags=re.IGNORECASE)
+        return re.sub(r'CWE-(\d{1,4})((?:,\d{1,4})+)', repl, s, flags=re.IGNORECASE)
 
     return _normalize(stem)
 
