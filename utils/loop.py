@@ -11,7 +11,7 @@ from utils.storage import make_row, save_report, save_csv
 
 
 def run(model_label: str, evaluate_fn: Callable,
-        script_name: str = "") -> None:
+        script_name: str = "", limit: int = 0, sample: int = 0) -> None:
     """
     표준 평가 루프.
 
@@ -41,6 +41,20 @@ def run(model_label: str, evaluate_fn: Callable,
     if not files:
         print(f"'{TEST_DIR}' 에 .py 파일이 없습니다."); return
 
+    if sample > 0:
+        import random, re as _re
+        test_fs  = [f for f in files if _re.search(r'test\d*\.py$', f, _re.I)]
+        patch_fs = [f for f in files if _re.search(r'patch\d*\.py$', f, _re.I)]
+        k = min(sample, len(test_fs))
+        chosen = set(random.sample(test_fs, k))
+        stems  = {_re.sub(r'test(\d*)\.py$', r'\1', f, flags=_re.I) for f in chosen}
+        files  = sorted(f for f in files if
+                        _re.sub(r'(?:test|patch)(\d*)\.py$', r'\1', f, flags=_re.I)
+                        in stems)
+        print(f"  [sample={sample}] {k}쌍 무작위 → {len(files)}개 파일")
+    elif limit > 0:
+        files = files[:limit]
+        print(f"  [limit={limit}] 앞에서 {limit}개만 평가")
     total = len(files)
     correct = 0; total_time = 0.0
     logs: list[str] = []; csv_data: list[dict] = []

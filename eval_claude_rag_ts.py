@@ -27,15 +27,27 @@ def main():
         start = time.time()
         try:
             msg = _client.messages.create(
-                model=CLAUDE_MODEL, max_tokens=1024,
+                model=CLAUDE_MODEL, max_tokens=2048, temperature=0.0,
                 messages=[{"role": "user", "content": prompt}]
             )
-            text = msg.content[0].text
+            text = msg.content[0].text if msg.content else ""
         except Exception as e:
+            print(f"\n    ⚠️  API 오류 [eval_claude_rag_ts.py]: {e}", flush=True)
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_CLAUDE_RAG_TS, evaluate, "claude_rag_ts")
+    # ── 실행 옵션 ──────────────────────────────────────────────
+    # 전체 평가:           python eval_claude_rag_ts.py
+    # 앞에서 N개만:        python eval_claude_rag_ts.py --limit 10
+    # 무작위 N쌍 샘플:     python eval_claude_rag_ts.py --sample 5
+    # ────────────────────────────────────────────────────────────
+    import argparse as _ap
+    _p = _ap.ArgumentParser(description="claude_rag_ts 평가")
+    _p.add_argument('--limit',  type=int, default=0, help='앞에서 N개만 평가')
+    _p.add_argument('--sample', type=int, default=0, help='무작위 N쌍 평가')
+    _args = _p.parse_args()
+    run(MODEL_CLAUDE_RAG_TS, evaluate, "claude_rag_ts",
+        limit=_args.limit, sample=_args.sample)
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,5 @@
 """eval_bandit.py — 비교군 ①: Bandit (SAST)"""
-import os, time, json, subprocess
+import os, re, time, json, subprocess
 from config import TEST_DIR, RESULT_DIR, MODEL_BANDIT
 from utils.scoring import ground_truth, score
 from utils.metrics import compute
@@ -27,7 +27,25 @@ def _run(path):
 def main():
     print(f"=== [{LABEL}] 평가 시작 ===\n")
     files = sorted(f for f in os.listdir(TEST_DIR) if f.endswith('.py'))
+    import argparse as _ap
+    # ── 실행 옵션 ──────────────────────────────────────────────
+    # 전체 평가:           python eval_bandit.py
+    # 앞에서 N개만:        python eval_bandit.py --limit 10
+    # 무작위 N쌍 샘플:     python eval_bandit.py --sample 5
+    # ────────────────────────────────────────────────────────────
+    _p = _ap.ArgumentParser()
+    _p.add_argument('--limit',  type=int, default=0)
+    _p.add_argument('--sample', type=int, default=0)
+    _args = _p.parse_args()
     if not files: print("파일 없음"); return
+    import random as _rnd
+    if _args.sample > 0:
+        test_fs = [f for f in files if re.search(r'test\d*\.py$', f, re.I)]
+        chosen  = set(_rnd.sample(test_fs, min(_args.sample, len(test_fs))))
+        stems   = {re.sub(r'(?:test|patch)(\d*)\.py$', r'\1', f, re.I) for f in chosen}
+        files   = sorted(f for f in files if re.sub(r'(?:test|patch)(\d*)\.py$', r'\1', f, re.I) in stems)
+    elif _args.limit > 0:
+        files = files[:_args.limit]
 
     total = len(files); correct = 0; total_time = 0.0
     logs = []; csv_data = []

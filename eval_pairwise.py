@@ -89,6 +89,9 @@ def _save(result_dir, detail, summary, pairs):
     return sp, dp, rp
 
 
+# 실행 방법: python eval_pairwise.py
+# (모든 eval_*.py 실행 완료 후 실행, result/ 폴더에 Data_*.csv 필요)
+
 def main():
     print("=== Pairwise Accuracy 평가 시작 ===\n")
     pairs = build_pairs(TEST_DIR)
