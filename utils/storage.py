@@ -42,8 +42,13 @@ def save_report(result_dir: str, label: str,
         f.write(f"Accuracy: {acc:.1f}% | Correct: {correct} | "
                 f"Incorrect: {total - correct} | Avg Time: {avg_t}s\n")
         if m:
-            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}%\n"
-                    f"TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}\n")
+            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}%\n")
+            f.write(f"TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}\n")
+            # FP/FN 세분화 (B안: 오분류는 FP+FN 양쪽 집계)
+            fp_p = m.get('FP_patch', '-'); fp_m = m.get('FP_misc', '-')
+            fn_s = m.get('FN_miss', '-')
+            f.write(f"  FP세분: 패치오탐={fp_p} / 오분류={fp_m}\n")
+            f.write(f"  FN세분: 미탐={fn_s} / 오분류={fp_m}\n")
         f.write("\n상세 로그\n" + "-" * 60 + "\n")
         for log in logs:
             f.write(log + "\n")

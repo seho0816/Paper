@@ -7,6 +7,7 @@ from rag_ts_engine import RAGEngine
 from utils.scoring import predicted_cwe
 from utils.prompts import build_rag, build_patch
 from utils.loop import run
+from utils.retry import raise_if_rate_limit
 
 load_dotenv()
 _key = os.getenv("GROK_API_KEY")
@@ -29,11 +30,13 @@ def main():
             r = _client.chat.completions.create(
                 model=GROK_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1024,
+                max_tokens=2048,
                 temperature=0.0
             )
-            text = r.choices[0].message.content
+            text = r.choices[0].message.content or ""
         except Exception as e:
+            print(f"\n    ⚠️  API 오류 [eval_grok_rag_ts.py]: {e}", flush=True)
+            raise_if_rate_limit(e)
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 

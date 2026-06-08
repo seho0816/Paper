@@ -7,6 +7,7 @@ from rag_ts_engine import RAGEngine
 from utils.scoring import predicted_cwe
 from utils.prompts import build_rag, build_patch
 from utils.loop import run
+from utils.retry import raise_if_rate_limit
 
 load_dotenv()
 _key = os.getenv("CLAUDE_API_KEY")
@@ -33,6 +34,7 @@ def main():
             text = msg.content[0].text if msg.content else ""
         except Exception as e:
             print(f"\n    ⚠️  API 오류 [eval_claude_rag_ts.py]: {e}", flush=True)
+            raise_if_rate_limit(e)
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 

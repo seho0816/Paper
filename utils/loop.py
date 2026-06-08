@@ -75,9 +75,26 @@ def run(model_label: str, evaluate_fn: Callable,
         except Exception as e:
             print(f"읽기 실패: {e}"); continue
 
-        result = evaluate_fn(code, is_patch=is_patch)
-        pred    = result[0]
-        elapsed = result[1]
+        # evaluate_fn 예외 방어 + rate limit 시에만 재시도 (최대 3회)
+        pred, elapsed = "UNKNOWN", 0.0
+        for _attempt in range(3):
+            try:
+                result = evaluate_fn(code, is_patch=is_patch)
+                pred, elapsed = result[0], result[1]
+                break  # 정상 응답(UNKNOWN 포함)은 재시도 안 함
+            except Exception as e:
+                msg = str(e).lower()
+                is_rate = ('rate' in msg or '429' in msg or 'quota' in msg
+                           or 'overloaded' in msg or 'resource' in msg)
+                if is_rate and _attempt < 2:
+                    import time as _t
+                    wait = 2 ** (_attempt + 2)  # 4초, 8초
+                    print(f"\n    ⏳ rate limit, {wait}초 대기 후 재시도...", flush=True)
+                    _t.sleep(wait)
+                    continue
+                print(f"\n    ⚠️  평가 오류 [{fname}]: {e}", flush=True)
+                pred, elapsed = "UNKNOWN", 0.0
+                break
 
         verdict = score(pred, gt)
         ox      = 'O' if verdict == 'TP' else 'X'

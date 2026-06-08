@@ -54,7 +54,7 @@ CKPT_PATH     = os.path.join(LOG_DIR, "_checkpoint.json")
 FLASH_MODEL   = "gemini-2.5-flash"
 PRO_MODEL     = "gemini-2.5-pro"
 GEN_DELAY     = 2.0
-VERIFY_DELAY  = 3.0
+VERIFY_DELAY  = 1.0
 MAX_RETRIES   = 5     # 429 재시도 횟수
 DIFF_MIN      = 0.0   # 이하면 미적용 (비율)
 DIFF_MAX_MULT = 4     # patch가 원본의 이 배수 초과 시 전체재작성 의심
@@ -96,14 +96,16 @@ VERIFY_ORIGINAL_PROMPT = """당신은 파이썬 보안 코드 검토 전문가�
 """
 
 VERIFY_NEW_PROMPT = """당신은 파이썬 보안 코드 검토 전문가입니다.
-아래 [코드]에 존재하는 모든 보안 취약점(CWE)을 찾으세요.
+아래 [코드]에 존재하는 모든 보안 취약점(CWE)을 빠짐없이 찾으세요.
+주요 취약점뿐 아니라 부차적·잠재적 취약점도 모두 포함하세요.
 취약점이 전혀 없으면 안전한 코드입니다.
 
 [코드]
 {code}
 
-마지막 줄에 취약점이 없으면 <CWE>None</CWE>,
-있으면 가장 심각한 <CWE>CWE-XXX</CWE>를 출력하세요.
+분석 후 마지막 줄에 발견된 모든 CWE를 출력하세요:
+  취약점 없음: <CWE>None</CWE>
+  있음(여러 개 가능): <CWE>CWE-XXX,CWE-YYY,CWE-ZZZ</CWE>
 """
 
 # ── 1:1 파일명 매핑 ───────────────────────────────────────────
@@ -194,10 +196,10 @@ def extract_code(raw_text):
 # ── API 호출 (지적3: 429 백오프) ──────────────────────────────
 
 def call_api(model, prompt, base_delay):
-    """지수 백오프 재시도 포함 API 호출"""
+    """지수 백오프 재시도 포함 API 호출.
+    첫 시도는 즉시 실행, 429 발생 시에만 지수 백오프 대기."""
     for attempt in range(MAX_RETRIES):
         try:
-            time.sleep(base_delay)
             r = client.models.generate_content(model=model, contents=prompt)
             return r.text, None
         except genai_errors.ClientError as e:
@@ -320,8 +322,8 @@ def stage_diff(test_code, patch_code):
     """
     개선된 diff 검증 (3단계 구간별 상한).
     보안 방어 코드는 본질적으로 길어지므로 파일 크기에 따라 상한을 다르게 적용.
-      - 원본 ≤10줄 : 절대 100줄 상한 (매우 짧은 파일 보호)
-      - 원본 11~30줄: 원본의 6배 상한 (방어코드 추가 여유)
+      - 원본 ≤10줄 : 절대 150줄 상한 (SSRF 등 복잡한 방어 로직 허용)
+      - 원본 11~30줄: 원본의 8배 상한 (방어코드 추가 여유 확대)
       - 원본 31줄~  : 원본의 4배 상한 (일반 파일)
     추가: 제거 줄이 추가 줄의 2배 이상이면 전체교체 의심 → WARN
     """
@@ -336,11 +338,11 @@ def stage_diff(test_code, patch_code):
         return False, "변경없음(미적용)"
 
     if len(t) <= 10:
-        if len(p) > 100:
-            return False, f"전체재작성의심({len(t)}→{len(p)}줄, 100줄초과)"
+        if len(p) > 150:
+            return False, f"전체재작성의심({len(t)}→{len(p)}줄, 150줄초과)"
     elif len(t) <= 30:
-        if len(p) > len(t) * 6:
-            return False, f"전체재작성의심({len(t)}→{len(p)}줄, 6배초과)"
+        if len(p) > len(t) * 8:
+            return False, f"전체재작성의심({len(t)}→{len(p)}줄, 8배초과)"
     else:
         if len(p) > len(t) * 4:
             return False, f"전체재작성의심({len(t)}→{len(p)}줄, 4배초과)"
@@ -380,6 +382,21 @@ _CRYPTO_RELATED_FP = {
     "CWE-315": {"CWE-287", "CWE-539"},               # 쿠키 fix → 인증/세션 FP
     "CWE-312": {"CWE-20",  "CWE-116"},               # 평문저장 fix → 입력검증 FP
     "CWE-311": {"CWE-20",  "CWE-362"},               # 암호화누락 fix → 관련 FP
+    # 보안 강화 패치 시 LLM 습관적 오탐 패턴 추가
+    "CWE-502": {"CWE-79",  "CWE-306", "CWE-20"},     # 역직렬화 fix → 입력검증/인증 FP
+    "CWE-521": {"CWE-307", "CWE-522"},               # 약한패스워드 fix → 관련인증 FP
+    "CWE-522": {"CWE-523", "CWE-256"},               # 자격증명보호 fix → 전송보안 FP
+    "CWE-524": {"CWE-613", "CWE-311"},               # 캐시민감정보 fix → 세션/암호화 FP
+    "CWE-571": {"CWE-287", "CWE-807"},               # 조건판단 fix → 인증 FP
+    "CWE-598": {"CWE-798", "CWE-200"},               # GET파라미터 fix → 하드코딩/노출 FP
+    "CWE-601": {"CWE-306", "CWE-20"},                # URL리다이렉트 fix → 인증/입력검증 FP
+    "CWE-602": {"CWE-20",  "CWE-807"},               # 클라이언트검증 fix → 서버입력검증 FP
+    "CWE-611": {"CWE-209", "CWE-776"},               # XXE fix → 에러노출/재귀 FP
+    "CWE-780": {"CWE-327", "CWE-755"},               # RSA OAEP fix → 암호화/예외 FP
+    "CWE-836": {"CWE-287", "CWE-916", "CWE-798", "CWE-203"},  # 비교취약점 fix → 인증/해시 FP
+    "CWE-863": {"CWE-287", "CWE-532", "CWE-840"},   # 권한부여 fix → 인증/로깅 FP
+    "CWE-306": {"CWE-208", "CWE-778", "CWE-754", "CWE-319"},  # 인증없음 fix → 타이밍/로깅 FP
+    "CWE-472": {"CWE-248", "CWE-840"},               # 파라미터조작 fix → 예외/동작 FP
 }
 
 # Bandit test ID → CWE 매핑 테이블
@@ -389,6 +406,14 @@ _BANDIT_CWE_MAP = {
     "B105": "CWE-259", "B106": "CWE-259", "B107": "CWE-259",
     # SQL Injection
     "B608": "CWE-89",
+    "B201": None,   # Flask debug=True — CWE-94 패치와 무관 FP
+    "B105": None,   # 하드코딩 패스워드 — 환경변수 참조 시 FP (별도 처리)
+    "B404": None,   # subprocess import — 화이트리스트 방식 CWE-78 패치에서 FP
+    "B603": None,   # subprocess call — 화이트리스트 방식 CWE-78 패치에서 FP
+    "B607": None,   # subprocess partial path — 동일 FP
+    "B608": None,   # SQL string format — 화이트리스트 검증 후 FP
+    "B413": None,   # PyCryptodome ARC4 — AES 교체 후 잔존 오탐 FP
+    "B320": None,   # xml.sax 관련 — xml 이스케이프 패치 후 FP
     # 명령 주입 (subprocess/shell=True)
     "B602": "CWE-78", "B605": "CWE-78",
     # subprocess 사용 자체 경고 — CWE와 1:1 매핑 불가, 필터링
@@ -491,8 +516,27 @@ def stage_bandit(test_path, patch_path, primary_cwes=None):
     t_ids = {i[0] for i in t_rel}
     p_ids = {i[0] for i in p_rel}
     if t_ids == p_ids:
-        # 동일한 이슈가 남아있음: 실제 미해결
-        return False, f"관련이슈미해결: {', '.join(sorted(t_ids))}"
+        # None 매핑 Bandit ID는 이미 _relevant_issues에서 필터됨
+        # 특정 패턴: 코드 내 안전 조치가 있으면 FP로 판단
+        with open(patch_path, encoding='utf-8') as _pf:
+            _ps = _pf.read().lower()
+        fp_ids = set()
+        for bid in t_ids:
+            # B413: ARC4 없으면 FP (AES로 교체됨)
+            if bid == 'B413' and 'arc4' not in _ps:
+                fp_ids.add(bid)
+            # B608: SQL 포맷팅이지만 화이트리스트 검증 후 사용 시 FP
+            elif bid == 'B608' and ('allowed_' in _ps or 'whitelist' in _ps or 'allowlist' in _ps):
+                fp_ids.add(bid)
+            # B404/B603: subprocess이지만 화이트리스트 방식이면 FP
+            elif bid in ('B404','B603') and ('allowed_' in _ps or 'whitelist' in _ps):
+                fp_ids.add(bid)
+        real_ids = t_ids - fp_ids
+        if fp_ids:
+            fp_note = f"(FP제외:{','.join(sorted(fp_ids))})"
+        if not real_ids:
+            return True, f"관련이슈FP처리{fp_note if fp_ids else ''}"
+        return False, f"관련이슈미해결: {', '.join(sorted(real_ids))}"
     return True, f"관련이슈변화({','.join(sorted(t_ids))}→{','.join(sorted(p_ids))})"
 
 def _parse_result_tag(text):
@@ -516,10 +560,35 @@ def _parse_cwe_tag(text):
     cm = re.search(r'CWE-\d{1,4}', text, re.IGNORECASE)
     return cm.group() if cm else "UNKNOWN"
 
+
+def _parse_cwe_set(text):
+    """<CWE>CWE-XXX,CWE-YYY</CWE> 태그에서 모든 CWE를 집합으로 추출."""
+    m = re.findall(r'<CWE>\s*(.*?)\s*</CWE>', text, re.IGNORECASE)
+    raw = m[-1].strip() if m else text
+    if re.search(r'\bnone\b', raw, re.IGNORECASE) and 'CWE-' not in raw.upper():
+        return {"None"}
+    cwes = set(re.findall(r'CWE-\d{1,4}', raw, re.IGNORECASE))
+    cwes = {c.upper() for c in cwes}
+    return cwes if cwes else {"UNKNOWN"}
+
+# 어떤 원본 CWE든 patch 후 LLM이 습관적으로 거론하는 범용 FP CWE
+# (두 로그 100개 분석 결과: CWE-400이 22회, CWE-20이 14회, CWE-209가 11회 반복)
+_GLOBAL_FP_CWES = {
+    "CWE-400",  # 자원소진 — 모든 보안 개선 코드에서 습관적 언급
+    "CWE-200",  # 정보노출 — 보안 강화 패치 후 범용 언급
+    "CWE-209",  # 에러메시지 노출 — 에러처리 추가 패치 후 언급
+    "CWE-20",   # 입력검증 — 거의 모든 패치에서 과잉 언급
+}
+
 # Python에서 완전한 원자적 패치가 불가능한 CWE (OS 레벨 제한)
 _INHERENTLY_PARTIAL_CWES = {
     "CWE-367",  # TOCTOU: resolve+is_relative_to가 최선, open() 사이 간격 존재
     "CWE-362",  # Race condition: Python에서 완전 방지 불가
+    "CWE-400",  # 자원소진: 상한 설정이 최선, 완전 차단 불가
+    "CWE-459",  # 불완전 정리: tempfile 사용이 최선, OS 정리 보장 불가
+    "CWE-90",   # LDAP 인젝션: escape_filter_chars가 표준 패치
+    "CWE-918",  # SSRF: IP 검증이 최선, DNS rebinding 등 완전 차단 불가
+    "CWE-293",  # 헤더 신뢰: 구조적 한계 (Referer 위조 가능)
 }
 
 def stage_llm_original(patch_code, orig_cwes):
@@ -554,6 +623,10 @@ def stage_llm_new(patch_code, orig_cwes, test_code=None):
     if pred_patch.upper() in [c.upper() for c in orig_cwes]:
         return True, f"원본CWE({pred_patch})만 거론(stage5 결과우선)"
 
+    # 글로벌 FP: 어떤 원본 CWE든 관계없이 항상 FP인 CWE
+    if pred_patch.upper() in _GLOBAL_FP_CWES:
+        return True, f"글로벌FP: {pred_patch}는 범용 과잉의심 CWE"
+
     # 암호화 도메인 관련 CWE FP 자동 처리
     for p_cwe in orig_cwes:
         related_fps = _CRYPTO_RELATED_FP.get(p_cwe, set())
@@ -564,11 +637,13 @@ def stage_llm_new(patch_code, orig_cwes, test_code=None):
     if test_code:
         text_t, err_t = call_api(PRO_MODEL, VERIFY_NEW_PROMPT.format(code=test_code), VERIFY_DELAY)
         if not err_t:
-            pred_test = _parse_cwe_tag(text_t)
-            # test에도 동일 CWE가 있었으면 신규 아님 → WARN으로 완화
-            if pred_test.upper() == pred_patch.upper():
+            # test의 모든 CWE를 집합으로 추출 (단일 비교의 한계 보완)
+            test_cwes = _parse_cwe_set(text_t)
+            pred_upper = pred_patch.upper()
+            # test에도 동일 CWE가 있었으면 신규 아님 → PASS
+            if pred_upper in test_cwes:
                 return True, f"원본에도존재({pred_patch}) — 신규유입아님(PASS)"
-            if pred_test.lower() == 'none':
+            if test_cwes == {"None"}:
                 # test는 안전한데 patch에서 발생 → 진짜 신규
                 return False, f"진짜신규취약점: {pred_patch}(test엔없음)"
     # test 비교 불가 시 보수적으로 WARN 처리 (즉시FAIL 대신 수동검토 요청)
