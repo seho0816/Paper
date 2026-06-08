@@ -7,6 +7,8 @@ from google.genai import types
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 from dotenv import load_dotenv
+from collections import defaultdict
+from typing import Any
 
 # --- 1. API 및 DB 셋업 ---
 load_dotenv()
@@ -49,6 +51,112 @@ except json.JSONDecodeError as e:
 except Exception as e:
     print(f"⚠️ MITRE CWE JSON 로드 실패: {e}")
     mitre_cwe_db = {}
+
+RETRIEVAL_TOP_K = 20
+MAX_DOCUMENTS_PER_CWE = 2
+SHOW_RAW_RETRIEVAL = False
+RAW_PREVIEW_PER_CHUNK = 3
+
+def select_retrieved_evidence(
+    retrieved_items: list[dict[str, Any]],
+    max_documents_per_cwe: int = MAX_DOCUMENTS_PER_CWE,
+) -> list[dict[str, Any]]:
+    """
+    여러 청크에서 검색된 결과를 정리한다.
+
+    1. 동일 DB 문서는 가장 가까운 거리를 유지
+    2. 검색된 청크 번호는 모두 보존
+    3. CWE별 거리순 최대 N개 선택
+    4. 직접 대응 검증기가 사용하는 evidence 형식으로 변환
+    """
+
+    # 동일 DB 문서를 하나로 합침
+    merged_by_document_id: dict[str, dict[str, Any]] = {}
+
+    for item in retrieved_items:
+        document_id = item["id"]
+        metadata = item.get("metadata") or {}
+        distance = float(item["distance"])
+        chunk_number = int(item["chunk_index"]) + 1
+
+        found_cwes = extract_cwes_from_metadata_value(
+            metadata.get("cwe")
+        )
+
+        if not found_cwes:
+            continue
+
+        # 직접 대응 검증에는 full_text가 필요함
+        full_text = metadata.get("full_text") or item.get("document", "")
+
+        current = merged_by_document_id.get(document_id)
+
+        if current is None:
+            merged_by_document_id[document_id] = {
+                "source_id": document_id,
+                "doc": full_text,
+                "cwes": set(found_cwes),
+                "best_distance": distance,
+                "chunks": {chunk_number},
+            }
+        else:
+            current["cwes"].update(found_cwes)
+            current["chunks"].add(chunk_number)
+
+            if distance < current["best_distance"]:
+                current["best_distance"] = distance
+
+                # 더 가까운 결과의 full_text가 있다면 보존
+                if full_text:
+                    current["doc"] = full_text
+
+    # CWE별 그룹화
+    grouped_by_cwe: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for evidence in merged_by_document_id.values():
+        for cwe in evidence["cwes"]:
+            grouped_by_cwe[cwe].append(evidence)
+
+    # CWE별 상위 N개 선택
+    selected_by_source_id: dict[str, dict[str, Any]] = {}
+
+    for cwe, items in grouped_by_cwe.items():
+        items.sort(
+            key=lambda evidence: evidence["best_distance"]
+        )
+
+        for evidence in items[:max_documents_per_cwe]:
+            source_id = evidence["source_id"]
+
+            if source_id not in selected_by_source_id:
+                selected_by_source_id[source_id] = evidence
+
+    # 전체 거리순 정렬
+    selected = sorted(
+        selected_by_source_id.values(),
+        key=lambda evidence: evidence["best_distance"],
+    )
+
+    # Gemini 검증용 E1, E2 형식으로 변환
+    evidence_items: list[dict[str, Any]] = []
+
+    for index, evidence in enumerate(selected, start=1):
+        pattern_name = extract_section_text(
+            evidence["doc"],
+            "취약점 명칭",
+        )
+
+        evidence_items.append({
+            "id": f"E{index}",
+            "source_id": evidence["source_id"],
+            "doc": evidence["doc"],
+            "cwes": sorted(evidence["cwes"]),
+            "pattern_name": pattern_name or evidence["source_id"],
+            "best_distance": evidence["best_distance"],
+            "chunks": sorted(evidence["chunks"]),
+        })
+
+    return evidence_items
 
 # --- 2. 🌳 트리시터 셋업 ---
 PY_LANGUAGE = Language(tspython.language())
@@ -435,21 +543,108 @@ DB 지식:
 6. 오직 [DB 지식]과 [사용자 코드]의 직접 대응 여부만 판단하세요.
 7. 확신이 부족하면 NO_MATCH로 처리하세요.
 8. 코드에 명시적으로 드러난 사실만 근거로 판단하세요.
-   함수명, 변수명, 필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요.
+함수명, 변수명, 필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요.
 
-9. 특정 CWE가 성립하려면 사용자 또는 외부 입력이 직접 영향을 주어야 하는 경우,
-   그 입력 유입 경로가 사용자 코드 전체에서 명확히 확인되어야 MATCH로 판정할 수 있습니다.
+단, 아래의 특정 CWE 전용 규칙에서 허용한 경우에는 이름만이 아니라
+실제 함수 인자 전달, 필드 접근, 조건 분기, 위험 API 또는 민감 동작 호출이
+함께 확인되는 전체 데이터 흐름을 근거로 판단할 수 있습니다
+9. 단순히 필요한 보안 통제 코드가 보이지 않는다는 이유만으로 MATCH하지 마세요.
 
-10. 특히 CWE-639를 MATCH로 판정하려면 다음 조건이 확인되어야 합니다.
-    - 객체 식별자(user_id, order_id, doc_id 등)가
-      외부 사용자가 조작할 수 있는 입력에서 유입되었거나,
-      코드 전체에서 그러한 외부 입력이 해당 식별자로 전달되는 흐름이 명시적으로 보여야 합니다.
-    - 예: request.args, request.form, request.json, request.cookies,
-      request.headers, Flask URL path parameter, 또는 이러한 값이 다른 함수 인자로 전달되는 경우
-    - 그 식별자를 기반으로 특정 객체를 조회, 수정, 삭제 또는 저장해야 합니다.
-    - 해당 객체에 대한 현재 사용자 소유권 또는 접근 권한 검증이 누락되어 있어야 합니다.
+보안 통제의 부재를 핵심 조건으로 하는 CWE는 다음 조건이 함께 확인되어야 합니다.
 
-11. 단순히 함수 매개변수 이름이 user_id, order_id, doc_id라는 이유만으로
+사용자 코드에 해당 통제가 실제로 필요한 위험 동작이 존재함
+통제 부재로 인해 DB 지식에 설명된 공격이나 잘못된 상태가 발생할 수 있는
+구체적인 코드 흐름이 확인됨
+
+10. CWE-502에 한해서는 다음 조건이 모두 확인될 경우,
+request, UploadFile, HTTP body 같은 명시적 외부 입력 API가 보이지 않더라도
+간접 데이터 흐름이 확인된 것으로 판단하여 MATCH할 수 있습니다.
+
+사용자 코드에 pickle.loads, pickle.load, dill.loads, dill.load,
+yaml.load, jsonpickle.decode 같은 위험한 역직렬화 API가 실제로 존재함
+역직렬화 대상이 코드 내부의 고정 상수나 리터럴이 아님
+함수 또는 메서드 인자로 전달된 동일 데이터가 호출 관계를 따라
+위험한 역직렬화 API까지 전달되는 흐름이 사용자 코드 전체에서 확인됨
+역직렬화 전에 서명, HMAC, 무결성 검증 또는 신뢰 출처 검증이 확인되지 않음
+검색된 DB 문서 역시 동일한 위험 역직렬화 API를 다루는 CWE-502 문서임
+
+함수명이나 변수명만으로 MATCH하지 마세요.
+uploaded, payload, serialized 같은 이름은 실제 인자 전달 흐름이
+함께 확인될 때만 보조 근거로 사용할 수 있습니다.
+
+다음 경우에는 CWE-502로 MATCH하지 마세요.
+
+코드 내부에 고정된 bytes 또는 테스트 fixture를 역직렬화함
+서버 내부에서만 생성된 데이터라는 흐름이 명확함
+역직렬화 전에 서명 또는 HMAC 검증이 수행됨
+json.loads, yaml.safe_load처럼 임의 객체 실행이 불가능한 안전한 파서를 사용함
+
+단순한 역직렬화 이후 타입 검사만으로는 pickle/dill의 코드 실행 위험이
+제거되지 않으므로, 타입 검사만 있다는 이유로 NO_MATCH 처리하지 마세요.
+
+     11. CWE-642를 MATCH로 판정할 때는 다음 조건이 모두 확인되어야 합니다.
+
+payment_confirmed, payment_required, is_paid, approved,
+verified, workflow_state 같은 보안상 중요한 상태값이 존재함
+해당 상태값이 함수 또는 메서드 입력으로 전달된 dict/object에서 읽힘
+그 상태값이 주문 완료, 결제 완료, 승인, 권한 부여 등
+민감한 서버 상태 변경의 실행 여부를 직접 결정함
+서버 DB, 결제 제공자, 검증된 세션 또는 신뢰할 수 있는
+서버 측 저장소에서 실제 상태를 재조회하거나 검증하는 코드가 없음
+검색된 DB 문서가 외부에서 제어 가능한 중요 상태값을 신뢰하는
+CWE-642 문서임
+
+request.json, request.form 같은 명시적인 웹 입력 API가 없더라도,
+함수 인자로 받은 상태 객체의 중요 필드가 조건식에 사용되고
+그 결과가 민감한 상태 변경 호출로 직접 이어지면 MATCH할 수 있습니다.
+
+submitted_state, form_state, client_state 같은 이름만으로 MATCH하지 마세요.
+다음 실제 흐름이 함께 확인되어야 합니다.
+
+입력 상태 필드
+→ 조건 판단
+→ 민감한 서버 상태 변경 함수 호출
+
+다음 경우에는 CWE-642로 MATCH하지 마세요.
+
+입력 상태값을 서버 DB 또는 결제 제공자에게 다시 확인함
+상태값이 화면 표시나 응답 구성에만 사용됨
+입력값이 민감한 상태 변경이나 권한 판단에 영향을 주지 않음
+서버가 생성하고 무결성을 보호한 상태 객체임이 명확함
+
+    12. CWE-837을 MATCH로 판정할 때는 단순히 idempotency 관련 코드가
+보이지 않는다는 이유만으로 MATCH하지 마세요.
+
+다음 조건이 모두 확인되어야 합니다.
+
+결제 승인, 결제 취소, 환불, 포인트 지급·차감,
+쿠폰 발급·사용, 외부 메시지 발송, 중복 INSERT처럼
+반복 실행 시 실제 부작용이 중복 발생하는 작업이 존재함
+해당 작업이 외부 요청 처리 함수나 반복 호출 가능한 서비스 경로에 존재하여
+같은 논리 작업이 다시 호출될 가능성이 있음
+동일 order_id, payment_id, request_id 등에 대한 처리 완료 여부,
+상태 잠금 또는 idempotency key 검사가 없음
+검색된 DB 문서의 단일 고유 작업 보장 누락 패턴과 직접 일치함
+
+다음 경우에는 CWE-837로 MATCH하지 마세요.
+
+mark_order_completed, update_status, set_processed처럼
+동일한 고정 상태를 설정하는 함수가 한 번 호출되는 것만 확인됨
+호출되는 함수의 내부 구현이 없어 비멱등 부작용을 확정할 수 없음
+동일한 논리 작업의 반복 호출 가능성이 코드 문맥에서 확인되지 않음
+단순히 idempotency key가 보이지 않는다는 이유만으로 추론함
+
+13. 특히 CWE-639를 MATCH로 판정하려면 다음 조건이 확인되어야 합니다.
+
+객체 식별자(user_id, order_id, doc_id 등)가
+외부 사용자가 조작할 수 있는 입력에서 유입되었거나,
+코드 전체에서 외부 입력이 해당 식별자로 전달되는 흐름이 명시적으로 보여야 함
+예: request.args, request.form, request.json, request.cookies,
+request.headers, Flask URL path parameter 또는 이러한 값이 다른 함수 인자로 전달되는 경우
+그 식별자를 기반으로 특정 객체를 조회, 수정, 삭제 또는 저장함
+해당 객체에 대한 현재 사용자 소유권 또는 접근 권한 검증이 누락됨
+
+14. 단순히 함수 매개변수 이름이 user_id, order_id, doc_id라는 이유만으로
     사용자 통제 식별자라고 단정하지 마세요.
     코드 전체에서 외부 입력 유입 또는 전달 흐름이 확인되지 않으면 NO_MATCH로 처리하세요.
     
@@ -626,74 +821,74 @@ while True:
         print("==============================================\n")
 
         print("[2/3] 🔍 DB에서 각 함수별로 취약점 패턴 검색 중...")
-
-    retrieved_contexts_set = set()
-    retrieved_candidate_cwes = set()
-    retrieved_evidence_map = {}
     DISTANCE_THRESHOLD = 1.8
 
     db_size = collection.count()
+
     if db_size == 0:
         print("⚠️ DB가 비어있습니다. 데이터를 먼저 추가해주세요.")
         continue
 
-    k = min(7, db_size)
+    retrieval_k = min(RETRIEVAL_TOP_K, db_size)
 
-    # 각 청크별로 DB 검색 수행
-    for i, chunk in enumerate(chunks):
-        results = collection.query(query_texts=[chunk], n_results=k)
+    all_retrieved_items: list[dict] = []
 
-        if not results.get('metadatas') or not results['metadatas'][0]:
-            continue
+    for chunk_index, chunk in enumerate(chunks):
+        results = collection.query(
+            query_texts=[chunk],
+            n_results=retrieval_k,
+            include=["documents", "metadatas", "distances"],
+        )
 
-        distances = results['distances'][0]
-        metadatas = results['metadatas'][0]
+        ids = results.get("ids", [[]])[0]
+        documents = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
+        distances = results.get("distances", [[]])[0]
 
-        for j in range(len(metadatas)):
-            dist = distances[j]
+        chunk_retrieved_items = []
 
-            if dist < DISTANCE_THRESHOLD:
-                doc = metadatas[j]['full_text']
-                retrieved_contexts_set.add(doc)
+        for document_id, document, metadata, distance in zip(
+            ids,
+            documents,
+            metadatas,
+            distances,
+        ):
+            metadata = metadata or {}
+            distance = float(distance)
 
-                cwe_value = metadatas[j].get('cwe')
-                found_cwes = extract_cwes_from_metadata_value(cwe_value)
-                retrieved_candidate_cwes.update(found_cwes)
+            if distance >= DISTANCE_THRESHOLD:
+                continue
 
-                if doc not in retrieved_evidence_map:
-                    retrieved_evidence_map[doc] = {
-                        "doc": doc,
-                        "cwes": set(found_cwes),
-                        "best_distance": dist,
-                        "chunks": {i + 1}
-                    }
-                else:
-                    retrieved_evidence_map[doc]["cwes"].update(found_cwes)
-                    retrieved_evidence_map[doc]["best_distance"] = min(
-                        retrieved_evidence_map[doc]["best_distance"],
-                        dist
-                    )
-                    retrieved_evidence_map[doc]["chunks"].add(i + 1)
+            item = {
+                "id": document_id,
+                "document": document or "",
+                "metadata": metadata,
+                "distance": distance,
+                "chunk_index": chunk_index,
+                "chunk": chunk,
+            }
 
+            all_retrieved_items.append(item)
+            chunk_retrieved_items.append(item)
+
+        # 디버깅이 필요할 때만 청크별 상위 일부 출력
+        if SHOW_RAW_RETRIEVAL:
+            print(
+                f"  📍 [청크 {chunk_index + 1}] "
+                f"검색 결과 {len(chunk_retrieved_items)}개"
+            )
+
+            for item in chunk_retrieved_items[:RAW_PREVIEW_PER_CHUNK]:
                 print(
-                    f"  📍 [청크 {i+1}] "
-                    f"CWE={cwe_value} 유사도 거리={dist:.4f}"
+                    f"     - CWE={item['metadata'].get('cwe', 'UNKNOWN')} "
+                    f"거리={item['distance']:.4f}"
                 )
 
-    # 검색된 DB 문서를 검증용 evidence item으로 변환
-    evidence_items = []
-
-    for idx, evidence in enumerate(retrieved_evidence_map.values(), start=1):
-        pattern_name = extract_section_text(evidence["doc"], "취약점 명칭")
-
-        evidence_items.append({
-            "id": f"E{idx}",
-            "doc": evidence["doc"],
-            "cwes": sorted(evidence["cwes"]),
-            "pattern_name": pattern_name,
-            "best_distance": evidence["best_distance"],
-            "chunks": sorted(evidence["chunks"])
-    })
+    # 동일 문서 제거 후 CWE별 최대 2개 선택
+    evidence_items = select_retrieved_evidence(
+        retrieved_items=all_retrieved_items,
+        max_documents_per_cwe=MAX_DOCUMENTS_PER_CWE,
+    )
 
     print("\n[3/4] 🧾 검색된 DB 지식과 사용자 코드의 직접 대응 여부를 검증합니다...")
 
