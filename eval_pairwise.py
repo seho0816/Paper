@@ -12,11 +12,26 @@ def _load_csvs(result_dir):
     files = sorted(glob.glob(os.path.join(result_dir, "Data_*.csv")))
     if not files:
         raise FileNotFoundError(f"'{result_dir}' 에 Data_*.csv 없음. eval_*.py 먼저 실행하세요.")
-    results = {}
+
+    # 동일 스크립트명(파일명의 두 번째 필드)으로 여러 CSV가 있을 때 최신 파일만 사용
+    # 파일명 형식: Data_{script_name}_{YYYYMMDD_HHMMSS}.csv
+    latest: dict[str, str] = {}  # script_name → 최신 파일 경로
     for p in files:
+        base = os.path.basename(p)          # Data_gemini_rag_ts_20260601_120000.csv
+        parts = base[5:-4].rsplit('_', 2)   # ['gemini_rag_ts', '20260601', '120000']
+        if len(parts) == 3:
+            key = parts[0]
+            if key not in latest or p > latest[key]:
+                latest[key] = p
+        else:
+            latest[base] = p  # 형식 불명 파일은 그대로
+
+    results = {}
+    for script_name, p in sorted(latest.items()):
         with open(p, encoding='utf-8-sig') as f:
             for row in csv.DictReader(f):
                 results.setdefault(row['Model'], {})[row['Filename']] = row['Prediction']
+        print(f"  로드: {os.path.basename(p)}")
     return results
 
 
@@ -73,6 +88,9 @@ def _save(result_dir, detail, summary, pairs):
             f.write(f"  {icon} [{r['Pair']}] GT:{r['GT']} | 취약:{r['Vuln_Pred']} | 패치:{r['Patch_Pred']}\n")
     return sp, dp, rp
 
+
+# 실행 방법: python eval_pairwise.py
+# (모든 eval_*.py 실행 완료 후 실행, result/ 폴더에 Data_*.csv 필요)
 
 def main():
     print("=== Pairwise Accuracy 평가 시작 ===\n")

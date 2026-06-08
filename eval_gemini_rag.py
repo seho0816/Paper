@@ -26,13 +26,25 @@ def main():
             prompt = build_rag(code, rag_ctx, mitre_ctx, allowed)
         start = time.time()
         try:
-            r = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-            text = r.text
+            r = _client.models.generate_content(
+                model=GEMINI_MODEL, contents=prompt)
+            text = r.text if r.text is not None else ""
         except Exception as e:
             text = f"Error: {e}"
         return (predicted_cwe(text), round(time.time()-start, 2))
 
-    run(MODEL_GEMINI_SIMPLE_RAG, evaluate, "gemini_rag")
+    # ── 실행 옵션 ──────────────────────────────────────────────
+    # 전체 평가:           python eval_gemini_rag.py
+    # 앞에서 N개만:        python eval_gemini_rag.py --limit 10
+    # 무작위 N쌍 샘플:     python eval_gemini_rag.py --sample 5
+    #   (--sample은 test/patch 쌍 단위로 무작위 선택 → 균형 보장)
+    # ────────────────────────────────────────────────────────────
+    import argparse as _ap
+    _p = _ap.ArgumentParser(description="eval_gemini_rag 평가")
+    _p.add_argument('--limit',  type=int, default=0, help='앞에서 N개만 평가')
+    _p.add_argument('--sample', type=int, default=0, help='무작위 N쌍 평가')
+    _args = _p.parse_args()
+    run(MODEL_GEMINI_SIMPLE_RAG, evaluate, "gemini_rag", limit=_args.limit, sample=_args.sample)
 
 if __name__ == "__main__":
     main()

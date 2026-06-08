@@ -1,40 +1,60 @@
 """
 utils/pairwise.py
 취약/패치 쌍 구성 및 Pairwise Accuracy 채점.
+
+[파일명 규칙]
+  취약 코드: CWE-XXX_test.py / CWE-XXX_01_test.py / CWE-XXX_02_test.py
+  패치 코드: CWE-XXX_patch.py / CWE-XXX_01_patch.py
+
+  키 생성 예시:
+    CWE-862_test.py      → "CWE-862"
+    CWE-862_01_test.py   → "CWE-862_01"
+    CWE-862_01_patch.py  → "CWE-862_01"
+    CWE-117,532_Test.py  → "CWE-117_CWE-532"
+    CWE-338_CWE-343_test.py → "CWE-338_CWE-343"
 """
 import os
 import re
 from utils.scoring import ground_truth, score
 
 
+def _pair_key(fname: str) -> str:
+    """
+    파일명에서 쌍 키를 추출.
+    _test / _patch / .py 를 제거한 stem을 키로 사용.
+    쉼표 구분 다중 CWE(CWE-117,532)는 CWE-117_CWE-532 형태로 정규화.
+    """
+    base = os.path.basename(fname)
+    stem = base[:-3] if base.endswith('.py') else base
+    # _test, _test2, _patch, _patch2 등 suffix(+선택적 숫자) 제거
+    # test2 ↔ patch2 가 같은 키가 되도록 숫자도 함께 제거
+    stem = re.sub(r'[_](?:test|patch)\d*$', '', stem, flags=re.IGNORECASE)
+
+    # 쉼표 구분 다중 CWE 정규화: "CWE-117,532" → "CWE-117_CWE-532"
+    def _normalize(s):
+        def repl(m):
+            first = m.group(1)
+            rest  = m.group(2).split(',')
+            parts = [f"CWE-{first}"] + [f"CWE-{n.strip()}" for n in rest if n.strip()]
+            return "_".join(sorted(set(parts)))
+        return re.sub(r'CWE-(\d{1,4})((?:,\d{1,4})+)', repl, s, flags=re.IGNORECASE)
+
+    return _normalize(stem)
+
+
 def build_pairs(test_dir: str) -> dict[str, dict]:
     """
     test_dir 내 파일을 순회하여 vuln/patch 쌍을 구성한다.
 
-    네이밍 규칙:
-      취약 코드: CWE-XXX_test.py  / CWE-XXX_vuln.py
-      패치 코드: CWE-XXX_patch.py
-
-    반환: { "CWE-XXX": {"vuln": "파일명", "patch": "파일명"}, ... }
+    반환: { "CWE-862_01": {"vuln": "CWE-862_01_test.py", "patch": "CWE-862_01_patch.py"}, ... }
     """
-    def _key(fname: str) -> str:
-        base = os.path.basename(fname)
-        explicit  = re.findall(r'CWE-(\d{3,4})', base, re.IGNORECASE)
-        after_sep = re.findall(r'CWE-\d{3,4}[_,](\d{3,4})', base, re.IGNORECASE)
-        cwes = []
-        for n in explicit + after_sep:
-            c = f"CWE-{n}"
-            if c not in cwes:
-                cwes.append(c)
-        return "_".join(sorted(set(cwes))) if cwes else ""
-
     vuln_map:  dict[str, str] = {}
     patch_map: dict[str, str] = {}
 
     for fname in os.listdir(test_dir):
         if not fname.endswith('.py'):
             continue
-        k = _key(fname)
+        k = _pair_key(fname)
         if not k:
             continue
         if '_patch' in fname.lower():

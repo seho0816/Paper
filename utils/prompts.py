@@ -5,53 +5,61 @@ utils/prompts.py
 [모델별 전략]
   Gemini / Claude / Grok → 한국어 (build_rag / build_raw / build_patch)
   Qwen / Llama           → 영어   (build_rag_en / build_raw_en / build_patch_en)
-                           소형 로컬 모델은 긴 한국어 지시에서 <CWE> 태그 미준수 현상.
-                           영어 + 짧은 구조로 태그 준수율 향상.
 
-[analyzer_gemini.py 기반 업데이트]
-  CWE 분류 규칙 10개 조항으로 확장 (친구 analyzer_gemini.py 기준)
-  DB 근거 제한 규칙 5개 조항으로 강화
-  CWE-639 판정 조건 명시
+[analyzer_gemini_rag.py 기반 업데이트 - 2026.06]
+  - CWE 분류 우선순위 규칙 10개 조항 완전 반영
+  - DB 근거 제한 규칙 5개 조항 완전 반영
+  - CWE-639 판정 조건 명시 (외부 입력 흐름 확인 필수)
+  - Hallucination 방지 규칙 강화
 """
 
 # ══════════════════════════════════════════════════════════════
-# 공통 블록 — 한국어
+# 한국어 공통 블록
 # ══════════════════════════════════════════════════════════════
+
+_HALLUCINATION_KO = """
+[Hallucination 방지]
+1. 제공된 [참고 지식(DB)]들을 복합적으로 참조하여 분석하세요.
+2. [참고 지식(DB)]이 비어있거나 무관하다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."라고만 답변하세요.
+3. 취약점이 발견되더라도, DB에 있는 해결책 예제 코드를 그대로 복사하지 마세요.
+4. 반드시 [분석 대상 코드]의 문맥을 유지하면서, 취약점만 안전하게 패치한 맞춤형 개선 코드를 작성하세요.
+
+[지식 사용 규칙]
+1. Python 취약/개선 예시 DB는 코드 패턴 탐지와 맞춤형 개선 코드 작성에 사용하세요.
+2. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하세요.
+3. 근거가 부족한 CWE는 최종 CWE로 단정하지 말고 "가능성 있음", "관련 후보" 수준으로만 언급하세요.
+""".strip()
 
 _CWE_KO = """
 [CWE 분류 우선순위 규칙]
 1. 참고 지식에 여러 CWE가 포함된 경우 사용자 코드와 가장 직접적으로 일치하는 CWE를 우선 후보로 삼으세요.
 2. 부모-자식 관계가 있는 후보 CWE 사이에서 하위 CWE를 무조건 우선하지 마세요.
    하위 CWE를 선택하려면 취약한 동작·원인·공격 시나리오가 해당 하위 CWE의 정의와 명확히 맞아야 합니다.
-3. 최종 CWE는 "어떻게 고쳤는가"가 아니라 "어떤 취약 원인이 실제로 발생했는가"를 기준으로 선택하세요.
-4. 여러 독립 취약점이 존재하면 하나로 합치지 말고 각각의 최종 CWE를 분리해서 작성하세요.
-5. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하고, 근거가 부족한 CWE는 "가능성 있음" 수준으로만 언급하세요.
-6. 함수명·변수명·필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요. 코드에 명시된 사실만 근거로 삼으세요.
-7. CWE-639를 최종 CWE로 판정하려면: 객체 식별자가 외부 사용자 입력(request.args, request.json, URL 파라미터 등)에서 유입되고, 소유권·권한 검증 없이 객체를 조회·수정·삭제하는 흐름이 코드에서 명확히 확인되어야 합니다.
-8. 단순히 함수 매개변수 이름이 user_id, order_id 등이라는 이유만으로 사용자 통제 식별자라고 단정하지 마세요.
+3. 코드가 상위 CWE 레슨/패턴과 더 직접적으로 일치한다면 상위 CWE를 최종 CWE로 선택할 수 있습니다.
+4. 최종 CWE는 "어떻게 고쳤는가"가 아니라 "어떤 취약 원인이 실제로 발생했는가"를 기준으로 선택하세요.
+5. 여러 독립 취약점이 존재하면 하나로 합치지 말고 각각의 최종 CWE를 분리해서 작성하세요.
+6. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하고, 근거 부족한 CWE는 "가능성 있음" 수준으로만 언급하세요.
+7. 함수명·변수명·필드명만 보고 공격자 조작 가능성이나 외부 입력 여부를 추정하지 마세요. 코드에 명시된 사실만 근거로 삼으세요.
+8. CWE-639를 최종 CWE로 판정하려면:
+   - 객체 식별자가 외부 사용자 입력(request.args, request.json, URL 파라미터 등)에서 유입되고,
+   - 소유권·권한 검증 없이 객체를 조회·수정·삭제하는 흐름이 코드에서 명확히 확인되어야 합니다.
+   - 단순히 매개변수 이름이 user_id, order_id라는 이유만으로 단정하지 마세요.
 9. 최종 출력에는 반드시 최종 CWE, 관련/상위 CWE, 최종 CWE로 판단한 이유를 분리해서 작성하세요.
 10. 보안 개선 방법이 특정 통제를 포함한다는 이유만으로 최종 CWE를 변경하지 마세요.
 """.strip()
 
 _OUT_KO = """
 =========================================
-[출력 템플릿] — 이 양식을 그대로 따르세요
+[출력 형식] — 반드시 따르세요 (간결하게 작성)
 
-▶ 취약점 분석 및 원리:
-(코드의 문제점과 패치 원리를 한국어로 설명)
+▶ 분석: (2~3줄 이내로 핵심만)
+▶ 최종 CWE:
+▶ 판단 이유: (1~2줄)
 
-▶ 맞춤형 개선 코드:
-```python
-(기존 코드를 안전하게 수정한 전체 코드)
-```
+[필수 — 답변 맨 마지막 줄]
+<CWE>CWE-XXX</CWE> 또는 취약점 없으면 <CWE>None</CWE>
 
-▶ 최종 판단:
-- 최종 CWE:
-- 관련/상위 CWE:
-- 최종 CWE로 판단한 이유:
-
-[자동 채점 규칙 — 필수]
-답변 맨 마지막에 반드시 <CWE>CWE-XXX</CWE> 형태로 단 하나만 출력하세요.
+주의: 코드 재작성 불필요. 분석은 짧게. 마지막 줄 태그가 채점에 사용됩니다.
 취약점이 없다면 <CWE>None</CWE>을 출력하세요.
 """.strip()
 
@@ -71,13 +79,13 @@ _PATCH_OUT_KO = """
 """.strip()
 
 # ══════════════════════════════════════════════════════════════
-# 공통 블록 — 영어 (Qwen / Llama 로컬 모델용, 간결하게 유지)
+# 영어 공통 블록 (Qwen / Llama 로컬 모델용)
 # ══════════════════════════════════════════════════════════════
 
 _CWE_EN = """
 [CWE Rules]
 1. Prioritize the CWE most directly matching the code pattern.
-2. Do not auto-prefer child CWEs; only use them when the root cause clearly fits.
+2. Do not auto-prefer child CWEs; only select them when the root cause clearly fits.
 3. Base the final CWE on what went wrong, not how it was fixed.
 4. List each independent vulnerability separately.
 5. Do not infer attacker control from variable names alone; verify from actual code flow.
@@ -106,22 +114,23 @@ Safe code → <CWE>None</CWE>
 
 
 # ══════════════════════════════════════════════════════════════
-# 내부 헬퍼 — DB 근거 제한 블록 (analyzer_gemini.py 규칙 반영)
+# 내부 헬퍼 — DB 근거 제한 블록 (analyzer_gemini_rag.py 5개 조항 완전 반영)
 # ══════════════════════════════════════════════════════════════
 
 def _db_limit_ko(allowed_cwes: str) -> str:
     if not allowed_cwes or allowed_cwes == "없음":
         return ""
     return f"""
+[이번 분석에서 사용 가능한 CWE 범위]
+{allowed_cwes}
+
 [DB 근거 제한 규칙]
-1. 최종 CWE로 확정할 수 있는 CWE는 반드시 아래 [허용 CWE 범위]에 포함된 것만 허용됩니다.
+1. 최종 CWE로 확정할 수 있는 CWE는 반드시 위 [사용 가능한 CWE 범위]에 포함된 것만 허용됩니다.
 2. 위 목록에 없는 CWE를 최종 취약점으로 확정하거나 직접 근거로 개선 코드를 생성하지 마세요.
 3. 상위/관련/하위 후보 CWE는 보조 설명 수준에서만 언급하세요. 반드시 "관련 CWE", "상위 CWE", "후보 CWE"임을 명시하세요.
 4. 제공된 참고 지식으로 직접 설명할 수 없는 문제는 최종 취약점으로 확정하지 마세요.
-5. 검색된 DB 지식과 사용자 코드의 취약 원인이 직접 대응하지 않는다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."라고만 답변하세요.
-
-[허용 CWE 범위]
-{allowed_cwes}
+5. 검색된 DB 지식과 사용자 코드의 취약 원인이 직접 대응하지 않는다면 반드시 아래 문장만 출력하세요.
+   "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."
 """.strip()
 
 
@@ -129,10 +138,13 @@ def _db_limit_en(allowed_cwes: str) -> str:
     if not allowed_cwes or allowed_cwes == "없음":
         return ""
     return f"""
-[DB Scope]
-Only confirm a final CWE from: {allowed_cwes}
-Do not assert any CWE outside this list as a final finding.
-If knowledge does not directly match the code, report no vulnerability.
+[Allowed CWE Scope]
+{allowed_cwes}
+
+[DB Scope Rules]
+1. Only confirm a final CWE from the allowed scope above.
+2. Do not assert any CWE outside this list as a final finding.
+3. If knowledge does not directly match the code, output only: "No confirmable vulnerability found within stored knowledge."
 """.strip()
 
 
@@ -147,16 +159,7 @@ def build_rag(code: str, rag_ctx: str, mitre_ctx: str,
     return f"""당신은 파이썬 보안 전문가입니다.
 사용자가 입력한 코드 전체를 분석하세요.
 
-[Hallucination 방지]
-1. 제공된 [참고 지식(DB)]을 복합적으로 참조하여 분석하세요.
-2. [참고 지식(DB)]이 비어있거나 무관하다면 "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."라고만 답변하세요.
-3. DB 해결책 예제 코드를 그대로 복사하지 마세요. 사용자 코드 맥락에 맞게 패치하세요.
-4. 아래 출력 템플릿을 반드시 그대로 따르세요.
-
-[지식 사용 규칙]
-1. 참고 지식은 코드 패턴 탐지와 맞춤형 개선 코드 작성에 사용하세요.
-2. 참고 지식과 부분적으로만 일치하는 경우 확실한 취약점만 보고하세요.
-3. 근거가 부족한 CWE는 최종 CWE로 단정하지 말고 "가능성 있음" 수준으로만 언급하세요.
+{_HALLUCINATION_KO}
 
 {_CWE_KO}
 
