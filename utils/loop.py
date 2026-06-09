@@ -82,74 +82,87 @@ def run(model_label: str, evaluate_fn: Callable,
     logs: list[str] = []; csv_data: list[dict] = []
     print(f"총 {total}개 파일 평가\n")
 
-    for idx, fpath in enumerate(files, 1):
-        fname     = os.path.basename(fpath)
-        test_type = _extract_test_type(fpath)
+    # 💡 여기서부터 try-except 블록 적용
+    try:
+        for idx, fpath in enumerate(files, 1):
+            fname     = os.path.basename(fpath)
+            test_type = _extract_test_type(fpath)
 
-        if _is_safe_folder(fpath):
-            gt = ["None"]
-        else:
-            gt = ground_truth(fname)
-
-        gt_str   = "/".join(gt)
-        is_patch = (gt == ["None"])
-        print(f"  [{idx:02d}/{total}] {fname}", end=" ... ", flush=True)
-
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                code = f.read()
-        except Exception as e:
-            print(f"읽기 실패: {e}"); continue
-
-        pred, elapsed = "UNKNOWN", 0.0
-        for _attempt in range(3):
-            try:
-                result = evaluate_fn(code, is_patch=is_patch)
-                pred, elapsed = result[0], result[1]
-                break
-            except Exception as e:
-                msg = str(e).lower()
-                is_rate = ("rate" in msg or "429" in msg or "quota" in msg
-                           or "overloaded" in msg or "resource" in msg)
-                if is_rate and _attempt < 2:
-                    import time as _t
-                    wait = 2 ** (_attempt + 2)
-                    print(f"\n    rate limit, {wait}s 대기 후 재시도...", flush=True)
-                    _t.sleep(wait)
-                    continue
-                print(f"\n    평가 오류 [{fname}]: {e}", flush=True)
-                pred, elapsed = "UNKNOWN", 0.0
-                break
-
-        verdict = score(pred, gt)
-        ox      = "O" if verdict == "TP" else "X"
-
-        if verdict == "TP":
-            correct += 1
-            tag = "TN(패치->None)" if is_patch else "TP"
-            print(f"[OK] {ox} [{tag}] | {test_type} | {elapsed}s")
-        else:
-            if is_patch:
-                tag = "FP(패치->CWE)"
-            elif pred in ("None", "UNKNOWN", "SKIPPED"):
-                tag = "FN(미탐)"
+            if _is_safe_folder(fpath):
+                gt = ["None"]
             else:
-                tag = "FP(오분류)"
-            print(f"[--] {ox} [{tag}] | {test_type} | GT:{gt_str} -> Pred:{pred} | {elapsed}s")
+                gt = ground_truth(fname)
 
-        total_time += elapsed
-        logs.append(
-            f"{fname:<42} | {test_type:<30} | GT:{gt_str:<15} | Pred:{pred:<12} | {ox} | {elapsed}s"
-        )
-        csv_data.append(make_row(model_label, fname, gt, pred, verdict, elapsed, test_type))
+            gt_str   = "/".join(gt)
+            is_patch = (gt == ["None"])
+            print(f"  [{idx:02d}/{total}] {fname}", end=" ... ", flush=True)
+
+            try:
+                with open(fpath, encoding="utf-8") as f:
+                    code = f.read()
+            except Exception as e:
+                print(f"읽기 실패: {e}"); continue
+
+            pred, elapsed = "UNKNOWN", 0.0
+            for _attempt in range(3):
+                try:
+                    result = evaluate_fn(code, is_patch=is_patch)
+                    pred, elapsed = result[0], result[1]
+                    break
+                except Exception as e:
+                    msg = str(e).lower()
+                    is_rate = ("rate" in msg or "429" in msg or "quota" in msg
+                               or "overloaded" in msg or "resource" in msg)
+                    if is_rate and _attempt < 2:
+                        import time as _t
+                        wait = 2 ** (_attempt + 2)
+                        print(f"\n    rate limit, {wait}s 대기 후 재시도...", flush=True)
+                        _t.sleep(wait)
+                        continue
+                    print(f"\n    평가 오류 [{fname}]: {e}", flush=True)
+                    pred, elapsed = "UNKNOWN", 0.0
+                    break
+
+            verdict = score(pred, gt)
+            ox      = "O" if verdict == "TP" else "X"
+
+            if verdict == "TP":
+                correct += 1
+                tag = "TN(패치->None)" if is_patch else "TP"
+                print(f"[OK] {ox} [{tag}] | {test_type} | {elapsed}s")
+            else:
+                if is_patch:
+                    tag = "FP(패치->CWE)"
+                elif pred in ("None", "UNKNOWN", "SKIPPED"):
+                    tag = "FN(미탐)"
+                else:
+                    tag = "FP(오분류)"
+                print(f"[--] {ox} [{tag}] | {test_type} | GT:{gt_str} -> Pred:{pred} | {elapsed}s")
+
+            total_time += elapsed
+            logs.append(
+                f"{fname:<42} | {test_type:<30} | GT:{gt_str:<15} | Pred:{pred:<12} | {ox} | {elapsed}s"
+            )
+            csv_data.append(make_row(model_label, fname, gt, pred, verdict, elapsed, test_type))
+
+    except KeyboardInterrupt:
+        print("\n\n⚠️ [중단됨] 사용자에 의해 평가가 중지되었습니다.")
+        print("지금까지 평가된 내역으로 리포트와 CSV를 안전하게 생성합니다...")
+
+    # 💡 중간에 멈췄을 경우 분모를 '전체 개수'가 아닌 '실제 완료된 개수'로 교체
+    processed_count = len(csv_data)
+    
+    if processed_count == 0:
+        print("저장할 평가 결과가 없습니다.")
+        return
 
     m      = compute(csv_data)
     m_type = compute_by_type(csv_data)
-    rpt    = save_report(RESULT_DIR, file_label, total, correct, total_time, logs, m, m_type)
+    rpt    = save_report(RESULT_DIR, file_label, processed_count, correct, total_time, logs, m, m_type)
     csv_   = save_csv(RESULT_DIR, file_label, csv_data)
 
-    acc = correct / total * 100 if total else 0
-    print(f"\n완료 | Accuracy:{acc:.1f}% ({correct}/{total})")
+    acc = correct / processed_count * 100 if processed_count else 0
+    print(f"\n완료 | Accuracy:{acc:.1f}% ({correct}/{processed_count})")
     print(f"  TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}")
     print(f"  P:{m['Precision']}% R:{m['Recall']}% F1:{m['F1']}")
     if m_type:

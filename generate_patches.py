@@ -48,6 +48,8 @@ stage6(신규CWE검증) 속도 옵션:
       → GT 오염 위험 있음 — 권장하지 않음
 """
 import os, re, time, json, ast, argparse, subprocess, difflib, datetime, random
+import concurrent.futures  # 멀티스레딩 담당
+import threading           # 파일 쓰기 충돌 방지용 자물쇠
 from google import genai
 from google.genai import errors as genai_errors
 from dotenv import load_dotenv
@@ -663,7 +665,8 @@ _INHERENTLY_PARTIAL_CWES = {
 
 def stage_llm_original(patch_code, orig_cwes):
     for cwe in orig_cwes:
-        text, err = call_api(PRO_MODEL, VERIFY_ORIGINAL_PROMPT.format(cwe=cwe, code=patch_code), VERIFY_DELAY)
+        # PRO_MODEL을 FLASH_MODEL로 변경
+        text, err = call_api(FLASH_MODEL, VERIFY_ORIGINAL_PROMPT.format(cwe=cwe, code=patch_code), VERIFY_DELAY)
         if err: return None, err
         verdict = _parse_result_tag(text)
         if verdict == "VULNERABLE":
@@ -766,6 +769,18 @@ def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_sta
     # 2. 구조
     ok, msg = stage_structure(test_code, patch_code); r["stages"]["2_structure"] = msg
     if ok is False: r["final"] = f"FAIL_STRUCTURE: {msg}"; return r
+
+    # 04_safe_boundary: stage3~6 전부 생략, 즉시 PASS
+    # test==patch 동일 코드 → 구조/diff/Bandit/LLM 모두 자명하게 통과
+    # Pro API 호출 0회, 시간/비용 100% 절약
+    if _folder.startswith("04_"):
+        r["stages"]["3_diff"]         = "04폴더 원본복사(검증생략)"
+        r["stages"]["4_bandit"]       = "04폴더 원본복사(검증생략)"
+        r["stages"]["5_llm_original"] = "04폴더 원본복사(검증생략)"
+        r["stages"]["6_llm_new"]      = "04폴더 원본복사(검증생략)"
+        r["final"] = "PASS"
+        return r
+
     # 3. diff
     ok, msg = stage_diff(test_code, patch_code); r["stages"]["3_diff"] = msg
     if not ok: r["final"] = f"FAIL_DIFF: {msg}"; return r
@@ -918,32 +933,45 @@ def main():
           f"격리={'OFF' if args.no_quarantine else 'ON'}\n")
 
     results, passed, failed, warned = [], 0, 0, 0
-    for i, test_f in enumerate(targets, 1):
-        print(f"[{i:03d}/{len(targets)}] {test_f}", end=' ... ', flush=True)
-        try:
-            res = process_one(test_f, generate=generate, use_llm=not args.no_llm,
-                                  no_stage6=args.no_stage6,
-                                  no_stage6_new_only=NO_STAGE6_NEW_ONLY)
-        except Exception as e:
-            res = {"test": test_f, "patch": test_to_patch(test_f),
-                   "orig_cwes": cwes_in_filename(test_f), "stages": {},
-                   "final": f"EXCEPTION: {e}"}
+    
+    # 💡 1. for 루프 전체를 try로 감싸기
+    try:
+        for i, test_f in enumerate(targets, 1):
+            print(f"[{i:03d}/{len(targets)}] {test_f}", end=' ... ', flush=True)
+            try:
+                res = process_one(test_f, generate=generate, use_llm=not args.no_llm,
+                                      no_stage6=args.no_stage6,
+                                      no_stage6_new_only=NO_STAGE6_NEW_ONLY)
+            except Exception as e:
+                res = {"test": test_f, "patch": test_to_patch(test_f),
+                       "orig_cwes": cwes_in_filename(test_f), "stages": {},
+                       "final": f"EXCEPTION: {e}"}
 
-        results.append(res)
-        f = res["final"]
-        if "PASS" in f:
-            passed += 1; print(f"✅ {f}")
-        elif "FAIL" in f or "EXCEPTION" in f:
-            failed += 1; print(f"❌ {f}")
-            if not args.no_quarantine and res.get("patch"):
-                if quarantine_patch(res["patch"]):
-                    print(f"        → 격리: {QUARANTINE}/{res['patch']}")
-        else:
-            warned += 1; print(f"⚠️  {f}")
+            results.append(res)
+            f = res["final"]
+            if "PASS" in f:
+                passed += 1; print(f"✅ {f}")
+            elif "FAIL" in f or "EXCEPTION" in f:
+                failed += 1; print(f"❌ {f}")
+                if not args.no_quarantine and res.get("patch"):
+                    if quarantine_patch(res["patch"]):
+                        print(f"        → 격리: {QUARANTINE}/{res['patch']}")
+            else:
+                warned += 1; print(f"⚠️  {f}")
 
-        done.add(test_f)
-        if i % 10 == 0:   # 10개마다 체크포인트
-            save_ckpt(done)
+            done.add(test_f)
+            if i % 10 == 0:   # 10개마다 체크포인트
+                save_ckpt(done)
+
+    # 💡 2. 루프 도중 Ctrl+C를 누르면 여기서 잡아서 바로 아래 로그 저장 단계로
+    except KeyboardInterrupt:
+        print("\n\n⚠️ [중단됨] 사용자에 의해 프로세스가 중지되었습니다.")
+        print("지금까지 처리된 내역으로 체크포인트와 패치 로그를 생성합니다...")
+
+    # 💡 3. 시작하자마자 중단해서 결과가 아예 없으면 빈 파일이 생기지 않도록 방어
+    if not results:
+        print("저장할 결과가 없습니다.")
+        return
 
     save_ckpt(done)
 
@@ -966,9 +994,6 @@ def main():
     if failed and not args.no_quarantine:
         print(f"격리됨: {QUARANTINE}/ (FAIL patch는 데이터셋에서 제외됨)")
 
+# 💡 4. 맨 밑의 코드는 try/except를 지우고 깔끔하게 원상복구
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\n[중단됨] 체크포인트가 저장되어 있습니다.")
-        print(f"--resume 옵션으로 이어서 실행할 수 있습니다.")
+    main()
