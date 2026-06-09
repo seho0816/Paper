@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import datetime
 import chromadb
 from google import genai
 from google.genai import types
@@ -765,6 +766,157 @@ def parse_and_chunk(source_code):
 
     return chunks
 
+
+NO_FINDING_MESSAGE = "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다."
+RESULT_DIR = "result"
+
+
+def save_analysis_report(
+    target_file: str,
+    status: str,
+    summary: str,
+    *,
+    failure_stage: str = "",
+    result_text: str = "",
+    final_cwes: list[str] | None = None,
+    final_mitre_context: str = "",
+    evidence_items: list[dict[str, Any]] | None = None,
+    matched_results: list[dict[str, Any]] | None = None,
+    verified_candidate_cwes: set[str] | list[str] | None = None,
+    verification_raw_response: str = "",
+    model_raw_response: str = "",
+    error_message: str = "",
+) -> str:
+    """
+    탐지 성공뿐 아니라 미탐지, 보류, 결과 차단, 실행 오류도 result 폴더에 저장합니다.
+
+    상태 예:
+    - DETECTED_AND_PATCHED
+    - NO_CONFIRMED_VULNERABILITY
+    - RESULT_REJECTED
+    - ERROR
+    """
+    os.makedirs(RESULT_DIR, exist_ok=True)
+
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = os.path.splitext(
+        os.path.basename(target_file)
+    )[0]
+    filename = os.path.join(
+        RESULT_DIR,
+        f"result_gemini_{base_name}_{now}.txt",
+    )
+
+    evidence_items = evidence_items or []
+    matched_results = matched_results or []
+    final_cwes = final_cwes or []
+    verified_candidate_cwes = sorted(
+        set(verified_candidate_cwes or [])
+    )
+
+    with open(filename, "w", encoding="utf-8") as file:
+        file.write(
+            f"=== RAG + Gemini 보안 분석 리포트 ({now}) ===\n"
+        )
+        file.write(
+            f"=== 분석 대상 파일: {target_file} ===\n\n"
+        )
+        file.write(f"분석 상태: {status}\n")
+        file.write(f"결과 요약: {summary}\n")
+
+        if failure_stage:
+            file.write(f"종료 단계: {failure_stage}\n")
+
+        file.write(
+            "확정된 최종 CWE: "
+            + (
+                ", ".join(final_cwes)
+                if final_cwes
+                else "없음"
+            )
+            + "\n"
+        )
+        file.write(
+            "직접 대응 검증을 통과한 CWE 후보: "
+            + (
+                ", ".join(verified_candidate_cwes)
+                if verified_candidate_cwes
+                else "없음"
+            )
+            + "\n"
+        )
+        file.write(
+            f"검색 후 선별된 DB 근거 수: {len(evidence_items)}\n"
+        )
+        file.write(
+            f"직접 대응 근거 수: {len(matched_results)}\n"
+        )
+
+        if error_message:
+            file.write(f"오류 내용: {error_message}\n")
+
+        file.write("\n=== 검색된 DB 근거 요약 ===\n")
+
+        if evidence_items:
+            for item in evidence_items:
+                file.write(
+                    "- "
+                    f"{item.get('id', '')} / "
+                    f"source_id={item.get('source_id', '')} / "
+                    f"CWE={', '.join(item.get('cwes', [])) or 'UNKNOWN'} / "
+                    f"거리={item.get('best_distance', 999):.4f} / "
+                    f"청크={item.get('chunks', [])} / "
+                    f"패턴={item.get('pattern_name', '')}\n"
+                )
+        else:
+            file.write("없음\n")
+
+        file.write("\n=== DB 근거 직접 대응 검증 결과 ===\n")
+
+        if matched_results:
+            for match in matched_results:
+                file.write(
+                    "- "
+                    f"근거={match.get('evidence_id', '')} / "
+                    f"CWE={', '.join(match.get('matched_cwes', []))} / "
+                    f"사유={match.get('reason', '')}\n"
+                )
+        else:
+            file.write("직접 대응한다고 판정된 DB 지식이 없습니다.\n")
+
+        if verification_raw_response:
+            file.write(
+                "\n=== 직접 대응 검증기 원본 응답 ===\n"
+            )
+            file.write(verification_raw_response.strip())
+            file.write("\n")
+
+        if result_text:
+            file.write("\n=== AI 분석 결과 ===\n")
+            file.write(result_text.strip())
+            file.write("\n")
+        elif model_raw_response:
+            file.write("\n=== AI 원본 응답 ===\n")
+            file.write(model_raw_response.strip())
+            file.write("\n")
+        else:
+            file.write("\n=== AI 분석 결과 ===\n")
+            file.write(summary)
+            file.write("\n")
+
+        if final_mitre_context:
+            file.write("\n=== MITRE 공식 기준 보강 ===\n")
+            file.write(final_mitre_context.strip())
+            file.write("\n")
+
+    print(
+        f"✅ 분석 결과가 '{filename}' 파일에 저장되었습니다! "
+        f"(상태: {status})"
+    )
+
+    return filename
+
+
 # --- 3. 메인 분석 루프 ---
 print("=== RAG + Tree-sitter 파이썬 보안 분석 시스템 ===")
 print("분석할 파일의 경로를 입력하세요. (예: bandit_test/CWE-338_CWE-343test.py)")
@@ -917,8 +1069,22 @@ while True:
 
     if not verified_items_for_prompt or not verified_candidate_cwes:
         print("\n================ [AI 분석 결과] ================")
-        print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
+        print(NO_FINDING_MESSAGE)
         print("================================================\n")
+
+        save_analysis_report(
+            target_file=target_file,
+            status="NO_CONFIRMED_VULNERABILITY",
+            summary=NO_FINDING_MESSAGE,
+            failure_stage="direct_evidence_verification",
+            evidence_items=evidence_items,
+            matched_results=matched_results,
+            verified_candidate_cwes=verified_candidate_cwes,
+            verification_raw_response=verification_result.get(
+                "raw_response",
+                "",
+            ),
+        )
         continue
 
     print(
@@ -1041,21 +1207,60 @@ while True:
         )
         result_text = response.text or ""
 
-# Gemini가 보류 응답을 낸 경우
-        if "저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다." in result_text:
+        # Gemini가 보류 응답을 낸 경우
+        if NO_FINDING_MESSAGE in result_text:
             print("\n================ [AI 분석 결과] ================")
-            print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
+            print(NO_FINDING_MESSAGE)
             print("================================================\n")
+
+            save_analysis_report(
+                target_file=target_file,
+                status="NO_CONFIRMED_VULNERABILITY",
+                summary=NO_FINDING_MESSAGE,
+                failure_stage="gemini_analysis_abstained",
+                result_text=result_text,
+                evidence_items=evidence_items,
+                matched_results=matched_results,
+                verified_candidate_cwes=verified_candidate_cwes,
+                verification_raw_response=verification_result.get(
+                    "raw_response",
+                    "",
+                ),
+            )
             continue
 
         # 최종 CWE 추출
         final_cwes = extract_final_cwes_from_result(result_text)
 
         # 최종 CWE가 없거나, DB 검색 후보 밖이면 차단
-        if not final_cwes or not set(final_cwes).issubset(verified_candidate_cwes):
+        if (
+            not final_cwes
+            or not set(final_cwes).issubset(
+                verified_candidate_cwes
+            )
+        ):
             print("\n================ [AI 분석 결과] ================")
-            print("저장된 지식 범위 내에서 확정 가능한 취약점을 찾지 못했습니다.")
+            print(NO_FINDING_MESSAGE)
             print("================================================\n")
+
+            save_analysis_report(
+                target_file=target_file,
+                status="RESULT_REJECTED",
+                summary=(
+                    "Gemini 결과에서 유효한 최종 CWE를 확인하지 못했거나, "
+                    "최종 CWE가 직접 대응 검증을 통과한 후보 범위를 벗어났습니다."
+                ),
+                failure_stage="final_cwe_validation",
+                final_cwes=final_cwes,
+                evidence_items=evidence_items,
+                matched_results=matched_results,
+                verified_candidate_cwes=verified_candidate_cwes,
+                verification_raw_response=verification_result.get(
+                    "raw_response",
+                    "",
+                ),
+                model_raw_response=result_text,
+            )
             continue
         
         final_mitre_context = build_mitre_context(
@@ -1074,23 +1279,61 @@ while True:
 
         print("================================================\n")
 
-        # --- 결과 파일 저장 ---
-        import datetime
-
-        os.makedirs("result", exist_ok=True)
-        now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = os.path.basename(target_file).replace('.py', '')
-        filename = os.path.join("result", f"result_gemini_{base_name}_{now}.txt")
-
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"=== RAG + Gemini 보안 분석 리포트 ({now}) ===\n")
-            f.write(f"=== 분석 대상 파일: {target_file} ===\n\n")
-            f.write(result_text)
-            f.write("\n\n=== MITRE 공식 기준 보강 ===\n")
-            f.write(final_mitre_context)
-
-        print(f"✅ 분석 결과가 '{filename}' 파일에 성공적으로 저장되었습니다!")
+        # --- 성공 결과 파일 저장 ---
+        save_analysis_report(
+            target_file=target_file,
+            status="DETECTED_AND_PATCHED",
+            summary=(
+                "DB 근거 직접 대응 검증과 최종 CWE 검증을 통과하여 "
+                "취약점 분석 및 개선 코드를 생성했습니다."
+            ),
+            result_text=result_text,
+            final_cwes=final_cwes,
+            final_mitre_context=final_mitre_context,
+            evidence_items=evidence_items,
+            matched_results=matched_results,
+            verified_candidate_cwes=verified_candidate_cwes,
+            verification_raw_response=verification_result.get(
+                "raw_response",
+                "",
+            ),
+        )
 
     except Exception as e:
         print(f"오류 발생: {e}")
+
+        try:
+            save_analysis_report(
+                target_file=target_file,
+                status="ERROR",
+                summary="분석 도중 오류가 발생했습니다.",
+                failure_stage="runtime_exception",
+                evidence_items=locals().get(
+                    "evidence_items",
+                    [],
+                ),
+                matched_results=locals().get(
+                    "matched_results",
+                    [],
+                ),
+                verified_candidate_cwes=locals().get(
+                    "verified_candidate_cwes",
+                    set(),
+                ),
+                verification_raw_response=(
+                    locals()
+                    .get("verification_result", {})
+                    .get("raw_response", "")
+                ),
+                model_raw_response=locals().get(
+                    "result_text",
+                    "",
+                ),
+                error_message=str(e),
+            )
+        except Exception as save_error:
+            print(
+                "⚠️ 오류 결과 파일 저장에도 실패했습니다: "
+                f"{save_error}"
+            )
         
