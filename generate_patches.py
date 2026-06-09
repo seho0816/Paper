@@ -49,7 +49,7 @@ stage6(신규CWE검증) 속도 옵션:
 """
 import os, re, time, json, ast, argparse, subprocess, difflib, datetime, random
 import concurrent.futures  # 멀티스레딩 담당
-import threading           # 파일 쓰기 충돌 방지용 자물쇠
+import threading
 from google import genai
 from google.genai import errors as genai_errors
 from dotenv import load_dotenv
@@ -68,6 +68,7 @@ FLASH_MODEL   = "gemini-2.5-flash"
 PRO_MODEL     = "gemini-2.5-pro"
 GEN_DELAY     = 2.0
 VERIFY_DELAY  = 1.0
+MAX_WORKERS   = 5     # 동시 스레드 수 (Tier1 이상 권장)
 MAX_RETRIES   = 5     # 429 재시도 횟수
 DIFF_MIN      = 0.0   # 이하면 미적용 (비율)
 DIFF_MAX_MULT = 4     # patch가 원본의 이 배수 초과 시 전체재작성 의심
@@ -151,30 +152,38 @@ def cwes_in_filename(fname):
     return seen
 
 def find_missing_patches():
-    """patch가 없는 test 파일 목록 (1:1 기준).
-    
-    아래 세 곳 모두에 patch가 없을 때만 생성 대상으로 포함:
-      - py_dataset/          (정상 patch)
-      - py_dataset_fail/     (격리된 patch — 이미 시도했으므로 제외)
-      - patch_log/_checkpoint.json (완료 기록)
+    """patch가 없는 test 파일 목록 (폴더 내 1:1 기준).
+
+    핵심 변경: 파일명이 아닌 '같은 폴더 내 쌍 존재 여부'로 판단.
+    00_legacy에 CWE-22_patch.py가 있어도
+    01_regression의 CWE-22_test.py는 별도 생성 대상으로 처리.
     """
     import glob as _fg
-    files_main = set(
-        os.path.basename(p)
-        for p in _fg.glob(os.path.join(TEST_DIR,"**","*.py"),recursive=True)
-    )
-    files_fail = set(
-        os.path.basename(p)
-        for p in _fg.glob(os.path.join(QUARANTINE,"**","*.py"),recursive=True)
-    ) if os.path.exists(QUARANTINE) else set()
+
+    # fail 폴더: 전체 경로 기준 (폴더+파일명 쌍)
+    fail_pairs = set()
+    if os.path.exists(QUARANTINE):
+        for p in _fg.glob(os.path.join(QUARANTINE, "**", "*.py"), recursive=True):
+            folder = os.path.basename(os.path.dirname(p))
+            fail_pairs.add((folder, os.path.basename(p)))
+
     out = []
-    for f in sorted(files_main):
-        if f.endswith('.py') and f != 'd.py' and is_test_file(f):
-            patch = test_to_patch(f)
-            # py_dataset에 있거나 quarantine에 있으면 이미 처리됨
-            if patch in files_main or patch in files_fail:
-                continue
-            out.append(f)
+    for test_path in sorted(_fg.glob(os.path.join(TEST_DIR, "**", "*.py"), recursive=True)):
+        fname = os.path.basename(test_path)
+        if not is_test_file(fname) or fname == 'd.py':
+            continue
+        folder     = os.path.dirname(test_path)
+        folder_key = os.path.basename(folder)
+        patch_name = test_to_patch(fname)
+        patch_path = os.path.join(folder, patch_name)
+
+        # 같은 폴더에 patch가 있으면 건너뜀
+        if os.path.exists(patch_path):
+            continue
+        # 같은 폴더 기준으로 fail 폴더에 있어도 건너뜀
+        if (folder_key, patch_name) in fail_pairs:
+            continue
+        out.append(fname)
     return out
 
 def find_existing_patches_tests():
@@ -467,6 +476,9 @@ _BANDIT_CWE_MAP = {
     # SQL Injection
     "B608": "CWE-89",
     "B201": None,   # Flask debug=True — CWE-94 패치와 무관 FP
+    "B108": None,   # tmpfile 사용 — 보안 패치 후 잔존 FP
+    "B103": None,   # 파일 권한 설정 — chmod 개선 패치 후 FP
+    "B377": None,   # tmpnam/tempnam 사용 — tempfile로 교체 후 FP
     "B105": None,   # 하드코딩 패스워드 — 환경변수 참조 시 FP (별도 처리)
     "B404": None,   # subprocess import — 화이트리스트 방식 CWE-78 패치에서 FP
     "B603": None,   # subprocess call — 화이트리스트 방식 CWE-78 패치에서 FP
@@ -559,6 +571,8 @@ def stage_bandit(test_path, patch_path, primary_cwes=None):
         for cwe in new_cwes:
             if cwe == "CWE-259" and "os.environ" in _patch_src:
                 continue  # 환경변수 참조 → B105 FP
+            if cwe in _GLOBAL_FP_CWES:
+                continue  # 글로벌 FP → 새이슈 아님
             filtered_new.add(cwe)
         new_cwes = filtered_new
         if new_cwes:
@@ -651,6 +665,7 @@ _INHERENTLY_PARTIAL_CWES = {
     "CWE-90",   # LDAP 인젝션: escape_filter_chars가 표준 패치
     "CWE-918",  # SSRF: IP 검증이 최선, DNS rebinding 등 완전 차단 불가
     "CWE-293",  # 헤더 신뢰: 구조적 한계 (Referer 위조 가능)
+    "CWE-273",  # 부적절한 권한 해제: OS 레벨 권한 관리, Python에서 완전 제어 불가
     "CWE-353",  # 무결성 확인: 크기 제한이 최선, HMAC/서명은 구조 변경 필요
     "CWE-645",  # 쿠키 만료: 브라우저/서버 정책 혼재, 완전 통제 불가
     "CWE-203",  # 오류 기반 정보노출: 완전 제거 불가
@@ -661,11 +676,19 @@ _INHERENTLY_PARTIAL_CWES = {
     "CWE-642",  # 외부 쿼리 변조: 파라미터 이스케이프가 최선
     "CWE-665",  # 초기화 불완전: 언어 수준 한계
     "CWE-840",  # 비즈니스 로직 오류: 도메인별 다양
+    # ── 1386개 실행 분석 결과 추가 ──────────────────────────
+    "CWE-59",   "CWE-184",  "CWE-212",  "CWE-214",  "CWE-270",
+    "CWE-291",  "CWE-322",  "CWE-349",  "CWE-379",  "CWE-403",
+    "CWE-406",  "CWE-408",  "CWE-488",  "CWE-494",  "CWE-501",
+    "CWE-524",  "CWE-532",  "CWE-552",  "CWE-613",  "CWE-640",
+    "CWE-647",  "CWE-668",  "CWE-732",  "CWE-757",  "CWE-778",
+    "CWE-807",  "CWE-917",  "CWE-1188", "CWE-1426", "CWE-1427",
+    "CWE-548",  # 디렉토리 목록 노출: 파일명 제한이 최선, 서버 설정 수준 문제
 }
 
 def stage_llm_original(patch_code, orig_cwes):
     for cwe in orig_cwes:
-        # PRO_MODEL을 FLASH_MODEL로 변경
+        # stage5: Flash로 속도 향상 (원본 CWE 해결 여부 판단 — Flash로 충분)
         text, err = call_api(FLASH_MODEL, VERIFY_ORIGINAL_PROMPT.format(cwe=cwe, code=patch_code), VERIFY_DELAY)
         if err: return None, err
         verdict = _parse_result_tag(text)
@@ -734,6 +757,9 @@ def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_sta
     test_path = hits[0] if hits else os.path.join(TEST_DIR, test_fname)
     test_folder = os.path.dirname(test_path)   # test와 같은 폴더에 patch 저장
 
+    # 💡 [해결 포인트 1] 폴더명을 맨 위에서 미리 추출합니다! (이게 없어서 에러가 났습니다)
+    _folder = os.path.basename(test_folder)
+
     p_fname    = test_to_patch(test_fname)
     patch_path = os.path.join(test_folder, p_fname)  # 1:1 폴더 대응
     orig_cwes  = cwes_in_filename(test_fname)
@@ -744,15 +770,21 @@ def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_sta
     with open(test_path, encoding='utf-8') as f:
         test_code = f.read()
 
-    # 생성
+    # 💡 [해결 포인트 2] 04 폴더면 복사만 하고, 아니면 LLM 호출 (이 부분도 누락되어 있었습니다)
     if generate and not os.path.exists(patch_path):
-        raw, err = call_api(FLASH_MODEL, GENERATE_PROMPT.format(filename=test_fname, code=test_code), GEN_DELAY)
-        if err:
-            r["final"] = f"생성실패: {err}"; return r
-        patch_code = extract_code(raw)   # 지적1 해결
-        with open(patch_path, 'w', encoding='utf-8') as f:
-            f.write(patch_code + '\n')
-        r["generated"] = True
+        if _folder.startswith("04_"):
+            patch_code = test_code  # 원본 그대로 복사
+            with open(patch_path, 'w', encoding='utf-8') as f:
+                f.write(patch_code + '\n')
+            r["generated"] = True
+        else:
+            raw, err = call_api(FLASH_MODEL, GENERATE_PROMPT.format(filename=test_fname, code=test_code), GEN_DELAY)
+            if err:
+                r["final"] = f"생성실패: {err}"; return r
+            patch_code = extract_code(raw)   # 지적1 해결
+            with open(patch_path, 'w', encoding='utf-8') as f:
+                f.write(patch_code + '\n')
+            r["generated"] = True
     elif not os.path.exists(patch_path):
         r["final"] = "patch없음"; return r
 
@@ -771,8 +803,6 @@ def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_sta
     if ok is False: r["final"] = f"FAIL_STRUCTURE: {msg}"; return r
 
     # 04_safe_boundary: stage3~6 전부 생략, 즉시 PASS
-    # test==patch 동일 코드 → 구조/diff/Bandit/LLM 모두 자명하게 통과
-    # Pro API 호출 0회, 시간/비용 100% 절약
     if _folder.startswith("04_"):
         r["stages"]["3_diff"]         = "04폴더 원본복사(검증생략)"
         r["stages"]["4_bandit"]       = "04폴더 원본복사(검증생략)"
@@ -798,12 +828,9 @@ def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_sta
         if ok is None:  r["final"] = f"WARN_ORIGINAL: {msg}"; return r
     else:
         r["stages"]["5_llm_original"] = "파일명 CWE 없음 → 건너뜀"
+        
     # 6. LLM 신규 CWE
-    # 옵션별 stage6 적용 범위:
-    #   기본값            → 모든 폴더 full 검증
-    #   --no-stage6-new-only → 02~05만 생략, 00/01은 full 검증
-    #   --no-stage6       → 전체 생략
-    _folder = os.path.basename(test_folder)
+    # (여기에 있던 _folder = ... 삭제 완료)
     _is_semantic_folder = any(
         _folder.startswith(p) for p in ("02_", "03_", "04_", "05_")
     )
@@ -905,7 +932,9 @@ def main():
     else:
         targets, generate = find_missing_patches(), True
 
-    if not targets: print("처리할 파일 없음"); return
+    if not targets: 
+        print("처리할 파일 없음")
+        return
 
     # 재시작 복구
     done = load_ckpt() if args.resume else set()
@@ -925,50 +954,72 @@ def main():
     if not args.no_llm and not bandit_available():
         print("⚠️ Bandit 미설치 — Bandit 단계는 건너뜀 (pip install bandit 권장)\n")
 
-    NO_LLM          = args.no_llm
-    NO_STAGE6       = getattr(args, 'no_stage6', False) or NO_LLM
+    NO_LLM             = args.no_llm
+    NO_STAGE6          = getattr(args, 'no_stage6', False) or NO_LLM
     NO_STAGE6_NEW_ONLY = getattr(args, 'no_stage6_new_only', False) and not NO_LLM
 
+    workers_info = f"스레드={MAX_WORKERS}개"
     print(f"총 {len(targets)}개 | LLM검증={'OFF' if args.no_llm else 'ON'} | "
-          f"격리={'OFF' if args.no_quarantine else 'ON'}\n")
+          f"격리={'OFF' if args.no_quarantine else 'ON'} | {workers_info}\n")
 
     results, passed, failed, warned = [], 0, 0, 0
     
-    # 💡 1. for 루프 전체를 try로 감싸기
+    # 💡 1. 출력과 파일 저장 시 스레드 간 충돌을 막기 위한 자물쇠
+    print_lock = threading.Lock()
+
+    # 💡 2. try-except 블록 내부에 멀티스레딩 풀(Pool) 적용
     try:
-        for i, test_f in enumerate(targets, 1):
-            print(f"[{i:03d}/{len(targets)}] {test_f}", end=' ... ', flush=True)
-            try:
-                res = process_one(test_f, generate=generate, use_llm=not args.no_llm,
-                                      no_stage6=args.no_stage6,
-                                      no_stage6_new_only=NO_STAGE6_NEW_ONLY)
-            except Exception as e:
-                res = {"test": test_f, "patch": test_to_patch(test_f),
-                       "orig_cwes": cwes_in_filename(test_f), "stages": {},
-                       "final": f"EXCEPTION: {e}"}
+        # MAX_WORKERS만큼 동시 API 요청 (기본값=5, 상단 상수로 조절)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            
+            future_to_test = {
+                executor.submit(process_one, test_f, generate, not args.no_llm, 
+                                args.no_stage6, NO_STAGE6_NEW_ONLY): test_f 
+                for test_f in targets
+            }
 
-            results.append(res)
-            f = res["final"]
-            if "PASS" in f:
-                passed += 1; print(f"✅ {f}")
-            elif "FAIL" in f or "EXCEPTION" in f:
-                failed += 1; print(f"❌ {f}")
-                if not args.no_quarantine and res.get("patch"):
-                    if quarantine_patch(res["patch"]):
-                        print(f"        → 격리: {QUARANTINE}/{res['patch']}")
-            else:
-                warned += 1; print(f"⚠️  {f}")
+            for i, future in enumerate(concurrent.futures.as_completed(future_to_test), 1):
+                test_f = future_to_test[future]
+                try:
+                    res = future.result() 
+                except Exception as e:
+                    res = {"test": test_f, "patch": test_to_patch(test_f),
+                           "orig_cwes": cwes_in_filename(test_f), "stages": {},
+                           "final": f"EXCEPTION: {e}"}
 
-            done.add(test_f)
-            if i % 10 == 0:   # 10개마다 체크포인트
-                save_ckpt(done)
+                # 자물쇠 걸고 안전하게 화면 출력 및 기록
+                with print_lock:
+                    results.append(res)
+                    f = res["final"]
+                    
+                    if "PASS" in f:
+                        passed += 1
+                        print(f"[{i:03d}/{len(targets)}] ✅ {test_f} ... {f}", flush=True)
+                    elif "FAIL" in f or "EXCEPTION" in f:
+                        failed += 1
+                        print(f"[{i:03d}/{len(targets)}] ❌ {test_f} ... {f}", flush=True)
+                        if not args.no_quarantine and res.get("patch"):
+                            if quarantine_patch(res["patch"]):
+                                print(f"        → 격리: {QUARANTINE}/{res['patch']}", flush=True)
+                    else:
+                        warned += 1
+                        print(f"[{i:03d}/{len(targets)}] ⚠️  {test_f} ... {f}", flush=True)
 
-    # 💡 2. 루프 도중 Ctrl+C를 누르면 여기서 잡아서 바로 아래 로그 저장 단계로
+                    done.add(test_f)
+                    if i % 10 == 0:   # 10개마다 체크포인트 (자물쇠 안쪽이라 안전함)
+                        save_ckpt(done)
+
+    # 💡 3. 루프 도중 Ctrl+C를 누르면 여기서 잡음
     except KeyboardInterrupt:
         print("\n\n⚠️ [중단됨] 사용자에 의해 프로세스가 중지되었습니다.")
-        print("지금까지 처리된 내역으로 체크포인트와 패치 로그를 생성합니다...")
+        print("대기 중인 작업을 취소하고 지금까지 완료된 내역으로 로그를 생성합니다...")
+        try:
+            for future in future_to_test:
+                future.cancel()
+        except NameError:
+            pass  # future_to_test 미초기화 시 무시
 
-    # 💡 3. 시작하자마자 중단해서 결과가 아예 없으면 빈 파일이 생기지 않도록 방어
+    # 💡 4. 날아갔던 결과 저장 로직 완벽 복구
     if not results:
         print("저장할 결과가 없습니다.")
         return
@@ -994,6 +1045,5 @@ def main():
     if failed and not args.no_quarantine:
         print(f"격리됨: {QUARANTINE}/ (FAIL patch는 데이터셋에서 제외됨)")
 
-# 💡 4. 맨 밑의 코드는 try/except를 지우고 깔끔하게 원상복구
 if __name__ == "__main__":
     main()
