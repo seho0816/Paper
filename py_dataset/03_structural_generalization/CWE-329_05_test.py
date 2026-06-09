@@ -1,0 +1,32 @@
+from Crypto.Cipher import AES
+
+
+class IvProvider:
+    def create(
+        self,
+    ) -> bytes:
+        return b"application-iv!!"
+
+
+class CbcEncryptionService:
+    def __init__(
+        self,
+        key: bytes,
+        iv_provider: IvProvider,
+    ) -> None:
+        self._key = key
+        self._iv_provider = iv_provider
+
+    def encrypt(
+        self,
+        padded_plaintext: bytes,
+    ) -> bytes:
+        cipher = AES.new(
+            self._key,
+            AES.MODE_CBC,
+            iv=self._iv_provider.create(),
+        )
+
+        return cipher.encrypt(
+            padded_plaintext
+        )
