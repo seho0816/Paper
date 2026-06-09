@@ -6,12 +6,13 @@ import os
 import csv
 import datetime
 
-CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s']
+CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Test_Type']
 
 
 def make_row(model: str, filename: str,
              gt: list[str], pred: str,
-             result: str, elapsed: float) -> dict:
+             result: str, elapsed: float,
+             test_type: str = "unknown") -> dict:
     return {
         'Model':        model,
         'Filename':     os.path.basename(filename),
@@ -19,13 +20,15 @@ def make_row(model: str, filename: str,
         'Prediction':   pred,
         'Match':        'O' if result == 'TP' else 'X',
         'Time_s':       elapsed,
+        'Test_Type':    test_type,
     }
 
 
 def save_report(result_dir: str, label: str,
                 total: int, correct: int,
                 total_time: float, logs: list[str],
-                m: dict | None = None) -> str:
+                m: dict | None = None,
+                m_type: dict | None = None) -> str:
     os.makedirs(result_dir, exist_ok=True)
     now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     safe_label = label.replace('.', '-').replace(' ', '_')
@@ -44,11 +47,14 @@ def save_report(result_dir: str, label: str,
         if m:
             f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}%\n")
             f.write(f"TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}\n")
-            # FP/FN 세분화 (B안: 오분류는 FP+FN 양쪽 집계)
             fp_p = m.get('FP_patch', '-'); fp_m = m.get('FP_misc', '-')
             fn_s = m.get('FN_miss', '-')
             f.write(f"  FP세분: 패치오탐={fp_p} / 오분류={fp_m}\n")
             f.write(f"  FN세분: 미탐={fn_s} / 오분류={fp_m}\n")
+        if m_type:
+            f.write("\n[유형별 성능]\n")
+            for ttype, tm in sorted(m_type.items()):
+                f.write(f"  {ttype:<35} P:{tm['Precision']}% R:{tm['Recall']}% F1:{tm['F1']}%\n")
         f.write("\n상세 로그\n" + "-" * 60 + "\n")
         for log in logs:
             f.write(log + "\n")

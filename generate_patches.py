@@ -48,7 +48,8 @@ if not _key: print("GEMINI_API_KEY 없음"); exit()
 client = genai.Client(api_key=_key)
 
 TEST_DIR      = "py_dataset"
-QUARANTINE    = "py_dataset_fail"         # FAIL patch 격리
+QUARANTINE    = "py_dataset_fail"         # FAIL patch 격리 (루트)
+QUARANTINE_SUB = os.path.join(QUARANTINE, "00_legacy_db_derived")  # 실제 격리 위치
 LOG_DIR       = "patch_log"
 CKPT_PATH     = os.path.join(LOG_DIR, "_checkpoint.json")
 FLASH_MODEL   = "gemini-2.5-flash"
@@ -145,8 +146,15 @@ def find_missing_patches():
       - py_dataset_fail/     (격리된 patch — 이미 시도했으므로 제외)
       - patch_log/_checkpoint.json (완료 기록)
     """
-    files_main = set(os.listdir(TEST_DIR))
-    files_fail = set(os.listdir(QUARANTINE)) if os.path.exists(QUARANTINE) else set()
+    import glob as _fg
+    files_main = set(
+        os.path.basename(p)
+        for p in _fg.glob(os.path.join(TEST_DIR,"**","*.py"),recursive=True)
+    )
+    files_fail = set(
+        os.path.basename(p)
+        for p in _fg.glob(os.path.join(QUARANTINE,"**","*.py"),recursive=True)
+    ) if os.path.exists(QUARANTINE) else set()
     out = []
     for f in sorted(files_main):
         if f.endswith('.py') and f != 'd.py' and is_test_file(f):
@@ -397,6 +405,46 @@ _CRYPTO_RELATED_FP = {
     "CWE-863": {"CWE-287", "CWE-532", "CWE-840"},   # 권한부여 fix → 인증/로깅 FP
     "CWE-306": {"CWE-208", "CWE-778", "CWE-754", "CWE-319"},  # 인증없음 fix → 타이밍/로깅 FP
     "CWE-472": {"CWE-248", "CWE-840"},               # 파라미터조작 fix → 예외/동작 FP
+    # 새로 추가된 FP 패턴들
+    "CWE-130":  {"CWE-22"},                           # 버퍼길이 fix → 경로 FP
+    "CWE-201":  {"CWE-532"},                           # 정보노출 fix → 로그노출 FP
+    "CWE-226":  {"CWE-248", "CWE-367", "CWE-662"},    # 민감정보 fix → 예외/TOCTOU FP
+    "CWE-253":  {"CWE-208", "CWE-287", "CWE-327", "CWE-347"},  # 오류코드 fix → 인증/암호화 FP
+    "CWE-256":  {"CWE-390", "CWE-404"},               # 평문저장 fix → 에러처리 FP
+    "CWE-266":  {"CWE-117", "CWE-532", "CWE-916"},    # 권한부여 fix → 로그/해시 FP
+    "CWE-270":  {"CWE-269", "CWE-362", "CWE-532", "CWE-667"},  # 권한상승 fix → 동기화 FP
+    "CWE-274":  {"CWE-285", "CWE-862"},               # 권한처리 fix → 권한확인 FP
+    "CWE-281":  {"CWE-362", "CWE-434"},               # 권한보존 fix → 경쟁/업로드 FP
+    "CWE-307":  {"CWE-208", "CWE-287", "CWE-312", "CWE-330", "CWE-362", "CWE-613"},
+    "CWE-325":  {"CWE-326", "CWE-329"},               # 암호화단계누락 fix → 관련암호화 FP
+    "CWE-340":  {"CWE-362"},                           # 예측가능값 fix → 경쟁조건 FP
+    "CWE-347":  {"CWE-287", "CWE-326"},               # 서명검증 fix → 인증/키길이 FP
+    "CWE-348":  {"CWE-116", "CWE-755"},               # 사용자식별 fix → 인코딩/예외 FP
+    "CWE-349":  {"CWE-248"},                           # 응답노출 fix → 예외처리 FP
+    "CWE-391":  {"CWE-396", "CWE-532", "CWE-613"},    # 예외무시 fix → 예외/세션 FP
+    "CWE-425":  {"CWE-538"},                           # 직접요청 fix → 파일노출 FP
+    "CWE-436":  {"CWE-176", "CWE-178", "CWE-754", "CWE-770"},
+    "CWE-471":  {"CWE-269"},                           # 불변수정 fix → 권한 FP
+    "CWE-480":  {"CWE-285", "CWE-807"},               # 연산자오용 fix → 인증/판단 FP
+    "CWE-549":  {"CWE-319", "CWE-352", "CWE-522"},    # 하드코딩비번 fix → 전송/CSRF FP
+    "CWE-566":  {"CWE-248", "CWE-772", "CWE-863"},    # 인증우회 fix → 자원/권한 FP
+    "CWE-584":  {"CWE-248", "CWE-862"},               # finally오용 fix → 예외/권한 FP
+    "CWE-636":  {"CWE-248"},                           # 기본값위험 fix → 예외처리 FP
+    "CWE-642":  {"CWE-117", "CWE-248", "CWE-284"},    # 외부쿼리 fix → 로그/접근제어 FP
+    "CWE-665":  {"CWE-1188"},                          # 초기화 fix → 기본값위험 FP
+    "CWE-668":  {"CWE-362"},                           # 자원노출 fix → 경쟁조건 FP
+    "CWE-669":  {"CWE-287", "CWE-345", "CWE-362", "CWE-770", "CWE-798"},
+    "CWE-672":  {"CWE-248", "CWE-367", "CWE-532", "CWE-841"},
+    "CWE-675":  {"CWE-362", "CWE-390", "CWE-532", "CWE-840", "CWE-862", "CWE-863"},
+    "CWE-682":  {"CWE-755", "CWE-840"},               # 계산오류 fix → 예외/비즈니스 FP
+    "CWE-696":  {"CWE-287", "CWE-307", "CWE-522", "CWE-754"},
+    "CWE-698":  {"CWE-778", "CWE-863"},               # 리다이렉트 fix → 로깅/권한 FP
+    "CWE-706":  {"CWE-362", "CWE-840", "CWE-862"},    # 이름혼동 fix → 경쟁/비즈니스 FP
+    "CWE-754":  {"CWE-248", "CWE-367"},               # 예외처리 fix → 예외타입/TOCTOU FP
+    "CWE-772":  {"CWE-601", "CWE-918"},               # 자원해제 fix → SSRF/리다이렉트 FP
+    "CWE-1286": {"CWE-248", "CWE-754", "CWE-770"},
+    "CWE-1287": {"CWE-269"},
+    "CWE-1288": {"CWE-840"},
 }
 
 # Bandit test ID → CWE 매핑 테이블
@@ -589,6 +637,16 @@ _INHERENTLY_PARTIAL_CWES = {
     "CWE-90",   # LDAP 인젝션: escape_filter_chars가 표준 패치
     "CWE-918",  # SSRF: IP 검증이 최선, DNS rebinding 등 완전 차단 불가
     "CWE-293",  # 헤더 신뢰: 구조적 한계 (Referer 위조 가능)
+    "CWE-353",  # 무결성 확인: 크기 제한이 최선, HMAC/서명은 구조 변경 필요
+    "CWE-645",  # 쿠키 만료: 브라우저/서버 정책 혼재, 완전 통제 불가
+    "CWE-203",  # 오류 기반 정보노출: 완전 제거 불가
+    "CWE-22",   # 경로 순회: resolve/is_relative_to가 최선
+    "CWE-307",  # 무제한 인증 시도: 완전 차단 불가
+    "CWE-436",  # 모호한 해석: 구조적 한계
+    "CWE-502",  # 역직렬화: json.loads가 최선, 일부 패턴 잔존
+    "CWE-642",  # 외부 쿼리 변조: 파라미터 이스케이프가 최선
+    "CWE-665",  # 초기화 불완전: 언어 수준 한계
+    "CWE-840",  # 비즈니스 로직 오류: 도메인별 다양
 }
 
 def stage_llm_original(patch_code, orig_cwes):
@@ -652,9 +710,14 @@ def stage_llm_new(patch_code, orig_cwes, test_code=None):
 # ── 단일 파일 처리 ────────────────────────────────────────────
 
 def process_one(test_fname, generate=True, use_llm=True):
-    test_path  = os.path.join(TEST_DIR, test_fname)
+    # test 파일을 하위폴더에서 재귀 탐색
+    import glob as _fg
+    hits = _fg.glob(os.path.join(TEST_DIR, "**", test_fname), recursive=True)
+    test_path = hits[0] if hits else os.path.join(TEST_DIR, test_fname)
+    test_folder = os.path.dirname(test_path)   # test와 같은 폴더에 patch 저장
+
     p_fname    = test_to_patch(test_fname)
-    patch_path = os.path.join(TEST_DIR, p_fname)
+    patch_path = os.path.join(test_folder, p_fname)  # 1:1 폴더 대응
     orig_cwes  = cwes_in_filename(test_fname)
 
     r = {"test": test_fname, "patch": p_fname, "orig_cwes": orig_cwes,
@@ -716,10 +779,28 @@ def process_one(test_fname, generate=True, use_llm=True):
 # ── 격리 (지적F) ──────────────────────────────────────────────
 
 def quarantine_patch(p_fname):
-    os.makedirs(QUARANTINE, exist_ok=True)
-    src = os.path.join(TEST_DIR, p_fname)
+    """FAIL patch를 격리. 원본 폴더 구조를 py_dataset_fail에도 보존.
+
+    예) py_dataset/02_semantic/CWE-89_patch.py
+        → py_dataset_fail/02_semantic/CWE-89_patch.py
+    폴더 정보 없으면 → py_dataset_fail/00_legacy_db_derived/
+    """
+    import glob as _fg
+    # 1. patch 파일의 현재 경로(하위폴더 포함) 탐색
+    hits = _fg.glob(os.path.join(TEST_DIR, "**", p_fname), recursive=True)
+    if hits:
+        src = hits[0]
+        # 2. 원본 폴더명 추출 (py_dataset 기준 상대경로)
+        rel = os.path.relpath(os.path.dirname(src), TEST_DIR)
+        # 3. fail 폴더에도 동일한 하위폴더 구조 생성
+        dst_dir = os.path.join(QUARANTINE, rel) if rel != "." else QUARANTINE_SUB
+    else:
+        src = os.path.join(TEST_DIR, p_fname)
+        dst_dir = QUARANTINE_SUB  # fallback
+
     if os.path.exists(src):
-        dst = os.path.join(QUARANTINE, p_fname)
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, p_fname)
         os.replace(src, dst)
         return True
     return False

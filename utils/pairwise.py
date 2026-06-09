@@ -51,7 +51,11 @@ def build_pairs(test_dir: str) -> dict[str, dict]:
     vuln_map:  dict[str, str] = {}
     patch_map: dict[str, str] = {}
 
-    for fname in os.listdir(test_dir):
+    import glob as _pg
+    for fname in (
+        os.path.basename(p)
+        for p in _pg.glob(os.path.join(test_dir,"**","*.py"),recursive=True)
+    ):
         if not fname.endswith('.py'):
             continue
         k = _pair_key(fname)

@@ -92,3 +92,16 @@ def compute(csv_rows: list[dict]) -> dict:
         'F1':          round(f1        * 100, 1),
         'Avg_Time_s':  round(sum(times) / len(times), 2) if times else 0,
     }
+
+
+def compute_by_type(csv_rows: list[dict]) -> dict[str, dict]:
+    """
+    test_type별로 metrics 집계.
+    반환: {test_type: compute() 결과 딕셔너리}
+    """
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for row in csv_rows:
+        ttype = row.get('Test_Type', 'unknown')
+        groups[ttype].append(row)
+    return {ttype: compute(rows) for ttype, rows in groups.items()}

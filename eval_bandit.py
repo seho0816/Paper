@@ -26,7 +26,12 @@ def _run(path):
 
 def main():
     print(f"=== [{LABEL}] 평가 시작 ===\n")
-    files = sorted(f for f in os.listdir(TEST_DIR) if f.endswith('.py'))
+    import glob as _bg
+    files = sorted(
+        os.path.basename(p)
+        for p in _bg.glob(os.path.join(TEST_DIR, "**", "*.py"), recursive=True)
+        if not os.path.basename(p).startswith("d.")
+    )
     import argparse as _ap
     # ── 실행 옵션 ──────────────────────────────────────────────
     # 전체 평가:           python eval_bandit.py
@@ -51,7 +56,10 @@ def main():
     logs = []; csv_data = []
 
     for idx, fname in enumerate(files, 1):
-        path = os.path.join(TEST_DIR, fname)
+        path = next(
+        (p for p in _bg.glob(os.path.join(TEST_DIR,"**",fname),recursive=True)),
+        os.path.join(TEST_DIR, fname)
+    )
         gt   = ground_truth(fname)
         gt_s = "/".join(gt)
         print(f"  [{idx:02d}/{total}] {fname}", end=" ... ", flush=True)
