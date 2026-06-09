@@ -36,6 +36,16 @@ py_dataset의 *_test.py → *_patch.py 1:1 자동 생성 + 정밀 검증 파이�
     python generate_patches.py --verify-only
     python generate_patches.py --no-llm
     python generate_patches.py --resume        # 중단 지점부터 이어서
+
+stage6(신규CWE검증) 속도 옵션:
+    python generate_patches.py --no-stage6-new-only --resume
+      → 00_legacy/01_regression: stage5+6 full 검증 (GT 품질 보장)
+      → 02_semantic~05_external: stage6 생략 (약 33% 속도 향상)
+      → 권장: 신규 유형 파일이 많을 때
+
+    python generate_patches.py --no-stage6 --resume
+      → 모든 폴더 stage6 전체 생략 (최속)
+      → GT 오염 위험 있음 — 권장하지 않음
 """
 import os, re, time, json, ast, argparse, subprocess, difflib, datetime, random
 from google import genai
@@ -626,6 +636,8 @@ _GLOBAL_FP_CWES = {
     "CWE-200",  # 정보노출 — 보안 강화 패치 후 범용 언급
     "CWE-209",  # 에러메시지 노출 — 에러처리 추가 패치 후 언급
     "CWE-20",   # 입력검증 — 거의 모든 패치에서 과잉 언급
+    "CWE-208",  # 타이밍 공격 — 인증/암호화 패치 후 LLM 습관적 언급
+    "CWE-755",  # 예외처리 — 보안 로직 추가 후 습관적 언급
 }
 
 # Python에서 완전한 원자적 패치가 불가능한 CWE (OS 레벨 제한)
@@ -709,7 +721,10 @@ def stage_llm_new(patch_code, orig_cwes, test_code=None):
 
 # ── 단일 파일 처리 ────────────────────────────────────────────
 
-def process_one(test_fname, generate=True, use_llm=True):
+def process_one(test_fname, generate=True, use_llm=True, no_stage6=False, no_stage6_new_only=False):
+    # 폴더 기반 stage6 자동 결정
+    # 00_legacy, 01_regression → full 검증 / 나머지 → stage6 생략
+
     # test 파일을 하위폴더에서 재귀 탐색
     import glob as _fg
     hits = _fg.glob(os.path.join(TEST_DIR, "**", test_fname), recursive=True)
@@ -769,9 +784,23 @@ def process_one(test_fname, generate=True, use_llm=True):
     else:
         r["stages"]["5_llm_original"] = "파일명 CWE 없음 → 건너뜀"
     # 6. LLM 신규 CWE
-    ok, msg = stage_llm_new(patch_code, orig_cwes, test_code); r["stages"]["6_llm_new"] = msg
-    if ok is False: r["final"] = f"FAIL_NEWCWE: {msg}"; return r
-    if ok is None:  r["final"] = f"WARN_NEWCWE: {msg}"; return r
+    # 옵션별 stage6 적용 범위:
+    #   기본값            → 모든 폴더 full 검증
+    #   --no-stage6-new-only → 02~05만 생략, 00/01은 full 검증
+    #   --no-stage6       → 전체 생략
+    _folder = os.path.basename(test_folder)
+    _is_semantic_folder = any(
+        _folder.startswith(p) for p in ("02_", "03_", "04_", "05_")
+    )
+    _needs_stage6 = (
+        not no_stage6 and
+        not (no_stage6_new_only and _is_semantic_folder)
+    )
+    if use_llm and _needs_stage6:
+        ok, msg = stage_llm_new(patch_code, orig_cwes, test_code)
+        r["stages"]["6_llm_new"] = msg
+        if ok is False: r["final"] = f"FAIL_NEWCWE: {msg}"; return r
+        if ok is None:  r["final"] = f"WARN_NEWCWE: {msg}"
 
     r["final"] = "PASS"
     return r
@@ -827,6 +856,10 @@ def main():
                     help='최신 로그의 PASS/WARN 항목만 재검증')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--no-llm', action='store_true')
+    ap.add_argument('--no-stage6', action='store_true',
+                    help='stage6(신규CWE검증) 생략 — Pro 호출 3→2회, 약 30% 속도향상')
+    ap.add_argument('--no-stage6-new-only', action='store_true',
+                    help='신규유형(02~05) stage6 생략, 00_legacy/01_regression은 full 검증 유지 — 권장 속도 옵션')
     ap.add_argument('--resume', action='store_true', help='체크포인트부터 이어하기')
     ap.add_argument('--no-quarantine', action='store_true', help='FAIL patch 격리 안 함')
     args = ap.parse_args()
@@ -877,6 +910,10 @@ def main():
     if not args.no_llm and not bandit_available():
         print("⚠️ Bandit 미설치 — Bandit 단계는 건너뜀 (pip install bandit 권장)\n")
 
+    NO_LLM          = args.no_llm
+    NO_STAGE6       = getattr(args, 'no_stage6', False) or NO_LLM
+    NO_STAGE6_NEW_ONLY = getattr(args, 'no_stage6_new_only', False) and not NO_LLM
+
     print(f"총 {len(targets)}개 | LLM검증={'OFF' if args.no_llm else 'ON'} | "
           f"격리={'OFF' if args.no_quarantine else 'ON'}\n")
 
@@ -884,7 +921,9 @@ def main():
     for i, test_f in enumerate(targets, 1):
         print(f"[{i:03d}/{len(targets)}] {test_f}", end=' ... ', flush=True)
         try:
-            res = process_one(test_f, generate=generate, use_llm=not args.no_llm)
+            res = process_one(test_f, generate=generate, use_llm=not args.no_llm,
+                                  no_stage6=args.no_stage6,
+                                  no_stage6_new_only=NO_STAGE6_NEW_ONLY)
         except Exception as e:
             res = {"test": test_f, "patch": test_to_patch(test_f),
                    "orig_cwes": cwes_in_filename(test_f), "stages": {},
