@@ -1,0 +1,35 @@
+============================================================
+[gemini-2.5-pro_simple_rag] CWE 식별 정확도 평가 리포트
+총 24개 | 2026-05-19 09:49
+============================================================
+
+Accuracy: 66.7% | Correct: 16 | Incorrect: 8 | Avg Time: 23.52s
+Precision: 52.9% | Recall: 100.0% | F1: 69.2%
+TP:9 TN:7 FP:8 FN:0
+
+상세 로그
+------------------------------------------------------------
+CWE-117,532_Test.py                        | GT:CWE-117/CWE-532 | Pred:CWE-117      | O | 37.83s
+CWE-117,532_patch.py                       | GT:None            | Pred:None         | O | 21.19s
+CWE-285_patch.py                           | GT:None            | Pred:None         | O | 21.08s
+CWE-285_test.py                            | GT:CWE-285         | Pred:CWE-285      | O | 23.97s
+CWE-287_patch.py                           | GT:None            | Pred:None         | O | 22.42s
+CWE-287_test.py                            | GT:CWE-287         | Pred:CWE-287      | O | 26.09s
+CWE-311_test.py                            | GT:CWE-311         | Pred:CWE-532      | X | 35.02s
+CWE-338_CWE-343_patch.py                   | GT:None            | Pred:None         | O | 14.5s
+CWE-338_CWE-343_test.py                    | GT:CWE-338/CWE-343 | Pred:CWE-338      | O | 24.05s
+CWE-400_patch.py                           | GT:None            | Pred:CWE-400      | X | 19.96s
+CWE-400_test.py                            | GT:CWE-400         | Pred:CWE-770      | X | 45.77s
+CWE-611_patch.py                           | GT:None            | Pred:CWE-400      | X | 17.26s
+CWE-611_test.py                            | GT:CWE-611         | Pred:CWE-611      | O | 18.27s
+CWE-639_test.py                            | GT:CWE-639         | Pred:CWE-285      | X | 21.1s
+CWE-770_patch.py                           | GT:None            | Pred:None         | O | 16.24s
+CWE-770_test.py                            | GT:CWE-770         | Pred:CWE-770      | O | 23.09s
+CWE-798_patch.py                           | GT:None            | Pred:CWE-532      | X | 23.79s
+CWE-798_test.py                            | GT:CWE-798         | Pred:CWE-798      | O | 17.95s
+CWE-915_patch.py                           | GT:None            | Pred:None         | O | 18.54s
+CWE-915_test.py                            | GT:CWE-915         | Pred:CWE-285      | X | 21.41s
+CWE-942,798_patch.py                       | GT:None            | Pred:CWE-285      | X | 18.98s
+CWE-942,798_test.py                        | GT:CWE-942/CWE-798 | Pred:CWE-798      | O | 40.82s
+CWE-942_patch.py                           | GT:None            | Pred:None         | O | 12.84s
+CWE-942_test.py                            | GT:CWE-942         | Pred:CWE-942      | O | 22.32s

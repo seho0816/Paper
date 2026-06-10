@@ -1,0 +1,10 @@
+﻿Model,Filename,Ground_Truth,Prediction,Match,Time_s,Memory_MB
+llama3.2 (Raw),"CWE-117,532_Test.py",CWE-117,UNKNOWN,X,20.94,0.46
+llama3.2 (Raw),CWE-285_test.py,CWE-285,801,X,14.75,0.01
+llama3.2 (Raw),CWE-287_test.py,CWE-287,797,X,18.61,0.01
+llama3.2 (Raw),CWE-338_CWE-343test.py,CWE-338/CWE-343,UNKNOWN,X,28.99,-29.29
+llama3.2 (Raw),CWE-400_test.py,CWE-400,798,X,29.71,0.02
+llama3.2 (Raw),CWE-611_test.py,CWE-611,UNKNOWN,X,24.33,0.58
+llama3.2 (Raw),CWE-770test.py,CWE-770,UNKNOWN,X,27.88,0.02
+llama3.2 (Raw),CWE-798_test.py,CWE-798,CWE-798,O,44.64,0.05
+llama3.2 (Raw),CWE-942_testcode.py,CWE-942,798,X,29.4,0.03

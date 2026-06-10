@@ -1,0 +1,90 @@
+=================================================================
+Pairwise Accuracy 리포트 | 2026-05-20 13:33 | 쌍:13개
+=================================================================
+
+Model                               Pairs   TP   FP   Acc%
+----------------------------------------------------------
+gemini-2.5-pro_rag                     13    6    7  46.2%
+gemini-2.5-pro_raw                     13    6    7  46.2%
+gemini-2.5-pro_simple_rag              13    6    7  46.2%
+llama3.2_rag                           13    1   12   7.7%
+Bandit                                 13    0   13   0.0%
+
+
+[ 쌍별 상세 ]
+-----------------------------------------------------------------
+
+▶ Bandit
+  ❌ [CWE-117_CWE-532] GT:CWE-117/CWE-532 | 취약:CWE-605 | 패치:CWE-605
+  ❌ [CWE-285] GT:CWE-285 | 취약:None | 패치:None
+  ❌ [CWE-287] GT:CWE-287 | 취약:None | 패치:None
+  ❌ [CWE-311] GT:CWE-311 | 취약:None | 패치:None
+  ❌ [CWE-338_CWE-343] GT:CWE-338/CWE-343 | 취약:CWE-330 | 패치:None
+  ❌ [CWE-400] GT:CWE-400 | 취약:CWE-78/CWE-377 | 패치:CWE-78/CWE-377
+  ❌ [CWE-611] GT:CWE-611 | 취약:CWE-20 | 패치:None
+  ❌ [CWE-639] GT:CWE-639 | 취약:None | 패치:None
+  ❌ [CWE-770] GT:CWE-770 | 취약:None | 패치:None
+  ❌ [CWE-798] GT:CWE-798 | 취약:CWE-259 | 패치:None
+  ❌ [CWE-798_CWE-942] GT:CWE-942/CWE-798 | 취약:CWE-259 | 패치:None
+  ❌ [CWE-915] GT:CWE-915 | 취약:None | 패치:None
+  ❌ [CWE-942] GT:CWE-942 | 취약:None | 패치:None
+
+▶ gemini-2.5-pro_rag
+  ✅ [CWE-117_CWE-532] GT:CWE-117/CWE-532 | 취약:CWE-117 | 패치:None
+  ✅ [CWE-285] GT:CWE-285 | 취약:CWE-285 | 패치:None
+  ✅ [CWE-287] GT:CWE-287 | 취약:CWE-287 | 패치:None
+  ❌ [CWE-311] GT:CWE-311 | 취약:CWE-285 | 패치:None
+  ✅ [CWE-338_CWE-343] GT:CWE-338/CWE-343 | 취약:CWE-338 | 패치:None
+  ❌ [CWE-400] GT:CWE-400 | 취약:CWE-770 | 패치:CWE-400
+  ❌ [CWE-611] GT:CWE-611 | 취약:CWE-611 | 패치:CWE-400
+  ❌ [CWE-639] GT:CWE-639 | 취약:CWE-285 | 패치:None
+  ✅ [CWE-770] GT:CWE-770 | 취약:CWE-770 | 패치:None
+  ❌ [CWE-798] GT:CWE-798 | 취약:CWE-798 | 패치:CWE-532
+  ❌ [CWE-798_CWE-942] GT:CWE-942/CWE-798 | 취약:CWE-798 | 패치:CWE-285
+  ❌ [CWE-915] GT:CWE-915 | 취약:CWE-285 | 패치:CWE-285
+  ✅ [CWE-942] GT:CWE-942 | 취약:CWE-942 | 패치:None
+
+▶ gemini-2.5-pro_raw
+  ✅ [CWE-117_CWE-532] GT:CWE-117/CWE-532 | 취약:CWE-117 | 패치:None
+  ❌ [CWE-285] GT:CWE-285 | 취약:CWE-862 | 패치:None
+  ✅ [CWE-287] GT:CWE-287 | 취약:CWE-287 | 패치:None
+  ❌ [CWE-311] GT:CWE-311 | 취약:CWE-312 | 패치:None
+  ❌ [CWE-338_CWE-343] GT:CWE-338/CWE-343 | 취약:CWE-337 | 패치:None
+  ❌ [CWE-400] GT:CWE-400 | 취약:CWE-434 | 패치:None
+  ✅ [CWE-611] GT:CWE-611 | 취약:CWE-611 | 패치:None
+  ✅ [CWE-639] GT:CWE-639 | 취약:CWE-639 | 패치:None
+  ❌ [CWE-770] GT:CWE-770 | 취약:CWE-789 | 패치:None
+  ✅ [CWE-798] GT:CWE-798 | 취약:CWE-798 | 패치:None
+  ❌ [CWE-798_CWE-942] GT:CWE-942/CWE-798 | 취약:CWE-798 | 패치:CWE-862
+  ✅ [CWE-915] GT:CWE-915 | 취약:CWE-915 | 패치:None
+  ❌ [CWE-942] GT:CWE-942 | 취약:CWE-346 | 패치:None
+
+▶ gemini-2.5-pro_simple_rag
+  ✅ [CWE-117_CWE-532] GT:CWE-117/CWE-532 | 취약:CWE-117 | 패치:None
+  ✅ [CWE-285] GT:CWE-285 | 취약:CWE-285 | 패치:None
+  ❌ [CWE-287] GT:CWE-287 | 취약:CWE-287 | 패치:CWE-287
+  ✅ [CWE-311] GT:CWE-311 | 취약:CWE-311 | 패치:None
+  ✅ [CWE-338_CWE-343] GT:CWE-338/CWE-343 | 취약:CWE-338 | 패치:None
+  ❌ [CWE-400] GT:CWE-400 | 취약:CWE-770 | 패치:CWE-770
+  ❌ [CWE-611] GT:CWE-611 | 취약:CWE-611 | 패치:CWE-400
+  ❌ [CWE-639] GT:CWE-639 | 취약:CWE-285 | 패치:None
+  ❌ [CWE-770] GT:CWE-770 | 취약:CWE-400 | 패치:None
+  ✅ [CWE-798] GT:CWE-798 | 취약:CWE-798 | 패치:None
+  ❌ [CWE-798_CWE-942] GT:CWE-942/CWE-798 | 취약:CWE-798 | 패치:CWE-285
+  ❌ [CWE-915] GT:CWE-915 | 취약:CWE-285 | 패치:None
+  ✅ [CWE-942] GT:CWE-942 | 취약:CWE-942 | 패치:None
+
+▶ llama3.2_rag
+  ❌ [CWE-117_CWE-532] GT:CWE-117/CWE-532 | 취약:UNKNOWN | 패치:None
+  ❌ [CWE-285] GT:CWE-285 | 취약:CWE-285 | 패치:UNKNOWN
+  ❌ [CWE-287] GT:CWE-287 | 취약:CWE-117 | 패치:UNKNOWN
+  ❌ [CWE-311] GT:CWE-311 | 취약:UNKNOWN | 패치:UNKNOWN
+  ✅ [CWE-338_CWE-343] GT:CWE-338/CWE-343 | 취약:CWE-338 | 패치:None
+  ❌ [CWE-400] GT:CWE-400 | 취약:CWE-285 | 패치:None
+  ❌ [CWE-611] GT:CWE-611 | 취약:CWE-311 | 패치:None
+  ❌ [CWE-639] GT:CWE-639 | 취약:CWE-400 | 패치:UNKNOWN
+  ❌ [CWE-770] GT:CWE-770 | 취약:CWE-400 | 패치:UNKNOWN
+  ❌ [CWE-798] GT:CWE-798 | 취약:CWE-285 | 패치:UNKNOWN
+  ❌ [CWE-798_CWE-942] GT:CWE-942/CWE-798 | 취약:CWE-798 | 패치:UNKNOWN
+  ❌ [CWE-915] GT:CWE-915 | 취약:UNKNOWN | 패치:None
+  ❌ [CWE-942] GT:CWE-942 | 취약:CWE-798 | 패치:UNKNOWN

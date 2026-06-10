@@ -1,0 +1,6 @@
+﻿Model,Total,TP,FP,Acc_%
+gemini-2.5-pro_rag,13,6,7,46.2
+gemini-2.5-pro_raw,13,6,7,46.2
+gemini-2.5-pro_simple_rag,13,6,7,46.2
+llama3.2_rag,13,1,12,7.7
+Bandit,13,0,13,0.0

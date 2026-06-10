@@ -1,0 +1,51 @@
+============================================================
+[grok-3-mini_rag_ts] CWE 식별 정확도 평가 리포트
+총 40개 | 2026-05-27 15:18
+============================================================
+
+Accuracy: 70.0% | Correct: 28 | Incorrect: 12 | Avg Time: 4.5s
+Precision: 55.6% | Recall: 71.4% | F1: 62.5%
+TP:10 TN:18 FP:8 FN:4
+
+상세 로그
+------------------------------------------------------------
+CWE-117,532_Test.py                        | GT:CWE-117/CWE-532 | Pred:CWE-117      | O | 5.36s
+CWE-117,532_patch.py                       | GT:None            | Pred:None         | O | 2.63s
+CWE-22_test.py                             | GT:None            | Pred:None         | O | 5.83s
+CWE-285_patch.py                           | GT:None            | Pred:None         | O | 2.86s
+CWE-285_test.py                            | GT:CWE-285         | Pred:CWE-285      | O | 4.3s
+CWE-287_patch.py                           | GT:None            | Pred:None         | O | 4.28s
+CWE-287_test.py                            | GT:CWE-287         | Pred:CWE-285      | X | 7.26s
+CWE-307_test.py                            | GT:CWE-307         | Pred:None         | X | 4.71s
+CWE-311,362_test.py                        | GT:CWE-311/CWE-362 | Pred:CWE-311      | O | 4.89s
+CWE-311_patch.py                           | GT:None            | Pred:None         | O | 3.09s
+CWE-311_test.py                            | GT:CWE-311         | Pred:CWE-311      | O | 5.22s
+CWE-328_test.py                            | GT:CWE-328         | Pred:CWE-287      | X | 4.74s
+CWE-338_CWE-343_patch.py                   | GT:None            | Pred:None         | O | 2.08s
+CWE-338_CWE-343_test.py                    | GT:CWE-338/CWE-343 | Pred:CWE-338      | O | 5.05s
+CWE-400_patch.py                           | GT:None            | Pred:None         | O | 4.64s
+CWE-400_test.py                            | GT:CWE-400         | Pred:CWE-770      | X | 4.59s
+CWE-502_test.py                            | GT:CWE-502         | Pred:None         | X | 3.69s
+CWE-601_test.py                            | GT:CWE-601         | Pred:None         | X | 6.04s
+CWE-611_patch.py                           | GT:None            | Pred:None         | O | 2.34s
+CWE-611_test.py                            | GT:CWE-611         | Pred:CWE-611      | O | 3.92s
+CWE-639_patch.py                           | GT:None            | Pred:None         | O | 2.75s
+CWE-639_test.py                            | GT:CWE-639         | Pred:CWE-285      | X | 4.75s
+CWE-643_test.py                            | GT:CWE-643         | Pred:CWE-611      | X | 4.72s
+CWE-674_test.py                            | GT:CWE-674         | Pred:CWE-400      | X | 4.6s
+CWE-770_patch.py                           | GT:None            | Pred:None         | O | 4.41s
+CWE-770_test.py                            | GT:CWE-770         | Pred:CWE-770      | O | 7.28s
+CWE-798_patch.py                           | GT:None            | Pred:None         | O | 2.91s
+CWE-798_test.py                            | GT:CWE-798         | Pred:CWE-798      | O | 5.02s
+CWE-79_test.py                             | GT:None            | Pred:None         | O | 4.92s
+CWE-79_test2.py                            | GT:None            | Pred:None         | O | 5.48s
+CWE-862_test.py                            | GT:CWE-862         | Pred:CWE-285      | X | 4.73s
+CWE-90_test.py                             | GT:None            | Pred:None         | O | 5.39s
+CWE-915_patch.py                           | GT:None            | Pred:None         | O | 4.39s
+CWE-915_test.py                            | GT:CWE-915         | Pred:CWE-285      | X | 5.68s
+CWE-918_test.py                            | GT:CWE-918         | Pred:None         | X | 4.92s
+CWE-942,798_patch.py                       | GT:None            | Pred:None         | O | 2.77s
+CWE-942,798_test.py                        | GT:CWE-942/CWE-798 | Pred:CWE-942      | O | 6.53s
+CWE-942_patch.py                           | GT:None            | Pred:None         | O | 3.35s
+CWE-942_test.py                            | GT:CWE-942         | Pred:CWE-942      | O | 3.66s
+CWE-94_test.py                             | GT:None            | Pred:None         | O | 4.12s

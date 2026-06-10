@@ -6,6 +6,27 @@ import os
 import csv
 import datetime
 
+_TEST_DIR_CACHE: str | None = None
+
+
+def _to_relpath(filepath: str) -> str:
+    """파일 경로를 TEST_DIR 기준 상대경로로 변환. basename fallback."""
+    global _TEST_DIR_CACHE
+    if _TEST_DIR_CACHE is None:
+        try:
+            from config import TEST_DIR as _td
+            _TEST_DIR_CACHE = _td
+        except Exception:
+            _TEST_DIR_CACHE = ""
+    try:
+        rel = os.path.relpath(str(filepath), _TEST_DIR_CACHE)
+        if rel.startswith('..'):
+            return os.path.basename(filepath)
+        return rel.replace('\\', '/')
+    except Exception:
+        return os.path.basename(filepath)
+
+
 CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Test_Type']
 
 
@@ -15,7 +36,7 @@ def make_row(model: str, filename: str,
              test_type: str = "unknown") -> dict:
     return {
         'Model':        model,
-        'Filename':     os.path.basename(filename),
+        'Filename':     _to_relpath(filename),
         'Ground_Truth': "/".join(gt),
         'Prediction':   pred,
         'Match':        'O' if result == 'TP' else 'X',

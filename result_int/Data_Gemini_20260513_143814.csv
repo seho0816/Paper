@@ -1,0 +1,11 @@
+﻿Model,Filename,Ground_Truth,Prediction,Match,Time_s,Memory_MB
+gemini-2.5-pro,"CWE-117,532_Test.py",CWE-117,CWE-117,O,25.16,API
+gemini-2.5-pro,CWE-285_test.py,CWE-285,CWE-770,X,23.07,API
+gemini-2.5-pro,CWE-287_test.py,CWE-287,CWE-285,X,27.88,API
+gemini-2.5-pro,CWE-338_CWE-343test.py,CWE-338/CWE-343,CWE-338,O,21.01,API
+gemini-2.5-pro,CWE-400_test.py,CWE-400,CWE-400,O,18.09,API
+gemini-2.5-pro,CWE-611_test.py,CWE-611,CWE-611,O,20.7,API
+gemini-2.5-pro,CWE-770test.py,CWE-770,CWE-789,X,19.64,API
+gemini-2.5-pro,CWE-798_test.py,CWE-798,CWE-798,O,18.4,API
+gemini-2.5-pro,CWE-942_testcode.py,CWE-942,CWE-942,O,19.51,API
+gemini-2.5-pro,treesiter_test.py,None,CWE-798,X,27.27,API

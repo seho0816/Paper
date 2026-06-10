@@ -1,0 +1,37 @@
+============================================================
+[grok-3-mini_raw] CWE 식별 정확도 평가 리포트
+총 26개 | 2026-05-27 12:53
+============================================================
+
+Accuracy: 0.0% | Correct: 0 | Incorrect: 26 | Avg Time: 0.29s
+Precision: 0.0% | Recall: 0.0% | F1: 0%
+TP:0 TN:0 FP:13 FN:13
+
+상세 로그
+------------------------------------------------------------
+CWE-117,532_Test.py                        | GT:CWE-117/CWE-532 | Pred:UNKNOWN      | X | 1.73s
+CWE-117,532_patch.py                       | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-285_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.24s
+CWE-285_test.py                            | GT:CWE-285         | Pred:UNKNOWN      | X | 0.22s
+CWE-287_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-287_test.py                            | GT:CWE-287         | Pred:UNKNOWN      | X | 0.29s
+CWE-311_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.24s
+CWE-311_test.py                            | GT:CWE-311         | Pred:UNKNOWN      | X | 0.23s
+CWE-338_CWE-343_patch.py                   | GT:None            | Pred:UNKNOWN      | X | 0.2s
+CWE-338_CWE-343_test.py                    | GT:CWE-338/CWE-343 | Pred:UNKNOWN      | X | 0.23s
+CWE-400_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-400_test.py                            | GT:CWE-400         | Pred:UNKNOWN      | X | 0.26s
+CWE-611_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-611_test.py                            | GT:CWE-611         | Pred:UNKNOWN      | X | 0.23s
+CWE-639_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-639_test.py                            | GT:CWE-639         | Pred:UNKNOWN      | X | 0.23s
+CWE-770_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.2s
+CWE-770_test.py                            | GT:CWE-770         | Pred:UNKNOWN      | X | 0.22s
+CWE-798_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-798_test.py                            | GT:CWE-798         | Pred:UNKNOWN      | X | 0.23s
+CWE-915_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.23s
+CWE-915_test.py                            | GT:CWE-915         | Pred:UNKNOWN      | X | 0.2s
+CWE-942,798_patch.py                       | GT:None            | Pred:UNKNOWN      | X | 0.22s
+CWE-942,798_test.py                        | GT:CWE-942/CWE-798 | Pred:UNKNOWN      | X | 0.21s
+CWE-942_patch.py                           | GT:None            | Pred:UNKNOWN      | X | 0.22s
+CWE-942_test.py                            | GT:CWE-942         | Pred:UNKNOWN      | X | 0.23s
