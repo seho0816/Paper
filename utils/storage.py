@@ -27,13 +27,14 @@ def _to_relpath(filepath: str) -> str:
         return os.path.basename(filepath)
 
 
-CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Test_Type']
+CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Test_Type', 'Hit_K']
 
 
 def make_row(model: str, filename: str,
              gt: list[str], pred: str,
              result: str, elapsed: float,
-             test_type: str = "unknown") -> dict:
+             test_type: str = "unknown",
+             hit_k: bool | None = None) -> dict:
     return {
         'Model':        model,
         'Filename':     _to_relpath(filename),
@@ -42,6 +43,7 @@ def make_row(model: str, filename: str,
         'Match':        'O' if result == 'TP' else 'X',
         'Time_s':       elapsed,
         'Test_Type':    test_type,
+        'Hit_K':        ('O' if hit_k else 'X') if hit_k is not None else '-',
     }
 
 
@@ -66,12 +68,17 @@ def save_report(result_dir: str, label: str,
         f.write(f"Accuracy: {acc:.1f}% | Correct: {correct} | "
                 f"Incorrect: {total - correct} | Avg Time: {avg_t}s\n")
         if m:
-            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}%\n")
+            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}% | Balanced_Recall: {m.get('Balanced_Recall','-')}%\n")
             f.write(f"TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}\n")
             fp_p = m.get('FP_patch', '-'); fp_m = m.get('FP_misc', '-')
             fn_s = m.get('FN_miss', '-')
             f.write(f"  FP세분: 패치오탐={fp_p} / 오분류={fp_m}\n")
             f.write(f"  FN세분: 미탐={fn_s} / 오분류={fp_m}\n")
+            unk = m.get('Unknown_Rate','-'); sfpr = m.get('Safe_FPR','-')
+            fnr  = m.get('FNR','-')
+            hitk = m.get('Hit_K_Rate','-')
+            f.write(f"  FNR(미탐율)={fnr}% | UNKNOWN비율={unk}% | safe_boundary FPR={sfpr}%\n")
+            f.write(f"  RAG Hit@K={hitk}% ({m.get('Hit_K_Count',0)}/{m.get('Hit_K_Total',0)}) — 검색DB가 GT CWE를 포함한 비율\n")
         if m_type:
             f.write("\n[유형별 성능]\n")
             for ttype, tm in sorted(m_type.items()):

@@ -93,6 +93,8 @@ def _evaluate_one(fpath: str, evaluate_fn: Callable, model_label: str) -> dict:
         try:
             result        = evaluate_fn(code, is_patch=is_patch)
             pred, elapsed = result[0], result[1]
+            # Hit@K: evaluate_fn이 3번째 값으로 retrieved_cwes 반환 시 캡처
+            retrieved_cwes = result[2] if len(result) > 2 else None
             break
         except Exception as e:
             msg     = str(e).lower()
@@ -107,7 +109,8 @@ def _evaluate_one(fpath: str, evaluate_fn: Callable, model_label: str) -> dict:
 
     return dict(fpath=fpath, fname=fname, gt=gt, gt_str=gt_str,
                 is_patch=is_patch, test_type=test_type,
-                pred=pred, elapsed=elapsed, error=None)
+                pred=pred, elapsed=elapsed, error=None,
+                retrieved_cwes=retrieved_cwes)
 
 
 def run(model_label: str, evaluate_fn: Callable,
@@ -224,6 +227,12 @@ def run(model_label: str, evaluate_fn: Callable,
 
                     verdict = score(pred, gt)
                     ox      = "O" if verdict == "TP" else "X"
+                    # Hit@K: 검색된 CWE 중 GT 포함 여부
+                    retrieved = res.get("retrieved_cwes")
+                    hit_k = None
+                    if retrieved and not is_patch:
+                        gt_cwe = gt[0] if gt else ""
+                        hit_k = gt_cwe in retrieved
 
                     if verdict == "TP":
                         correct += 1
@@ -236,7 +245,8 @@ def run(model_label: str, evaluate_fn: Callable,
                         print(f"  [{i:03d}/{total}] {fname} ... [--] {ox} [{tag}] | {test_type} | GT:{gt_str} -> Pred:{pred} | {elapsed:.1f}s", flush=True)
 
                     total_time += elapsed
-                    row = make_row(model_label, fname, gt, pred, verdict, elapsed, test_type)
+                    row = make_row(model_label, fname, gt, pred, verdict, elapsed, test_type,
+                                  hit_k=hit_k)
                     log = f"{fname:<42} | {test_type:<30} | GT:{gt_str:<15} | Pred:{pred:<12} | {ox} | {elapsed:.1f}s"
                     csv_data.append(row); logs.append(log)
 

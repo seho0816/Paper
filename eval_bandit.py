@@ -32,32 +32,7 @@ def _run(path):
 def main():
     print(f"=== [{LABEL}] 평가 시작 ===\n")
 
-    # ── 파일 목록: 전체 경로 기준 수집 ──────────────────────────
-    all_paths = sorted(
-        p for p in _bg.glob(os.path.join(TEST_DIR, "**", "*.py"), recursive=True)
-        if not os.path.basename(p).startswith("d.")
-    )
-
-    # 완전한 쌍(test+patch 모두 존재)만 포함. orphan 제외.
-    # 완전한 쌍(test+patch 모두 존재)만 포함 — 모든 폴더 동일 기준
-    complete_pairs: set = set()
-    for p in all_paths:
-        fname  = os.path.basename(p)
-        folder = os.path.dirname(p)
-        if re.search(r"test\d*\.py$", fname, re.I):
-            patch_name = re.sub(r"test(\d*)\.py$", r"patch\1.py", fname, re.I)
-            patch_path = os.path.join(folder, patch_name)
-            if os.path.exists(patch_path):
-                complete_pairs.add(p)
-                complete_pairs.add(patch_path)
-
-    files = [p for p in all_paths if p in complete_pairs]
-    if _args.folder:
-        ff = _args.folder.lower()
-        files = [p for p in files
-                 if ff in os.path.basename(os.path.dirname(p)).lower() or os.path.basename(os.path.dirname(p)).lower().startswith(ff)]
-        print(f"  [folder={_args.folder}] {len(files)}개 파일 필터")
-
+    # ── [수정됨] 1. 인자(args) 파싱을 가장 먼저 수행 ──
     import argparse as _ap
     _p = _ap.ArgumentParser()
     _p.add_argument('--limit',  type=int, default=0)
@@ -68,6 +43,39 @@ def main():
                     help='특정 폴더만 평가 (예: 01, 02_semantic, safe_boundary)')
     _args = _p.parse_args()
 
+    # ── 2. 파일 목록: 전체 경로 기준 수집 ──
+    all_paths = sorted(
+        p for p in _bg.glob(os.path.join(TEST_DIR, "**", "*.py"), recursive=True)
+        if not os.path.basename(p).startswith("d.")
+    )
+
+    # ── 3. 완전한 쌍(test+patch 모두 존재)만 포함 ──
+    complete_pairs: set = set()
+    for p in all_paths:
+        fname  = os.path.basename(p)
+        folder = os.path.dirname(p)
+        if re.search(r"test\d*\.py$", fname, re.I):
+            gt = ground_truth(p) # 경로(fpath)를 넘겨 04번인지 확인하도록 통일
+            if gt == ["None"]:
+                # 안전 코드는 패치 파일 쌍 불필요
+                complete_pairs.add(p)
+            else:
+                patch_name = re.sub(r"test(\d*)\.py$", r"patch\1.py", fname, re.I)
+                patch_path = os.path.join(folder, patch_name)
+                if os.path.exists(patch_path):
+                    complete_pairs.add(p)
+                    complete_pairs.add(patch_path)
+
+    files = [p for p in all_paths if p in complete_pairs]
+
+    # ── 4. 폴더 필터 적용 (이제 _args가 있으므로 안전함!) ──
+    if _args.folder:
+        ff = _args.folder.lower()
+        files = [p for p in files
+                 if ff in os.path.basename(os.path.dirname(p)).lower() or os.path.basename(os.path.dirname(p)).lower().startswith(ff)]
+        print(f"  [folder={_args.folder}] {len(files)}개 파일 필터")
+
+    # ── 5. 샘플링 로직 ──
     import random as _rnd
     if _args.sample > 0:
         test_fs = [f for f in files if re.search(r"test\d*\.py$", os.path.basename(f), re.I)]
@@ -82,7 +90,7 @@ def main():
     if not files:
         print("파일 없음"); return
 
-    # resume: 체크포인트 로드
+    # ── 6. 체크포인트 로드 (resume) ──
     import json as _js
     from utils.loop import _ckpt_path, _load_ckpt, _save_ckpt
     done_map = _load_ckpt("bandit") if _args.resume else {}
@@ -91,39 +99,32 @@ def main():
 
     total = len(files); correct = 0; total_time = 0.0
     logs = []; csv_data = []
-    # 완료된 결과 복원
+    
+    # ── 7. 완료된 결과 복원 ──
     for r in done_map.values():
         csv_data.append(r['row']); logs.append(r['log'])
         if r['verdict'] == 'TP': correct += 1
         total_time += r['elapsed']
     print(f"총 {total}개 파일 평가\n")
 
+    # ── 8. 평가 메인 루프 ──
     remaining = [f for f in files if f not in done_map]
     for idx, fpath in enumerate(remaining, start=len(done_map)+1):
         fname     = os.path.basename(fpath)
         test_type = _extract_test_type(fpath)
 
-        # GT 결정:
-        #   04_safe_boundary → 무조건 None (완전한 안전 코드)
-        #   나머지 폴더      → 파일명에서 추출
-        # is_patch=False 유지 — 모델/Bandit에게 힌트 없음
-        if "04_safe_boundary" in fpath.replace("\\", "/"):
-            gt       = ["None"]
-            is_patch = False
-        else:
-            gt       = ground_truth(fname)
-            is_patch = (gt == ["None"])
+        # 블라인드 평가 (경로를 통해 04번 폴더인지, 파일명을 통해 패치인지 식별)
+        gt = ground_truth(fpath)
+        is_patch = bool(re.search(r'patch\d*\.py$', fname, re.I))
         gt_s = "/".join(gt)
         print(f"  [{idx:03d}/{total}] {fname}", end=" ... ", flush=True)
 
         preds, elapsed = _run(fpath)
 
-        # B안 채점: score() 함수와 동일 기준
         if is_patch:
             pred_s  = "/".join(preds) if preds else "None"
             verdict = score(pred_s, gt)   # preds 없으면 TN, 있으면 FP
         else:
-            # test 파일: GT CWE 중 하나라도 탐지하면 TP
             matched = [p for p in preds if p in gt]
             if matched:
                 pred_s  = matched[0]

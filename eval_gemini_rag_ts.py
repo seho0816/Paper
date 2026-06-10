@@ -14,6 +14,7 @@
     # python eval_gemini_rag_ts.py --folder 01 --sample 10   조합 가능
     # ────────────────────────────────────────────────────────────
 
+import argparse as _ap
 import os, time
 from google import genai
 from dotenv import load_dotenv
@@ -49,9 +50,8 @@ def main():
             print(f"\n    ⚠️  API 오류: {e}", flush=True)
             raise_if_rate_limit(e)
             text = f"Error: {e}"
-        return (predicted_cwe(text), round(time.time()-start, 2))
+        return (predicted_cwe(text), round(time.time()-start, 2), allowed)
     
-    import argparse as _ap
     _p = _ap.ArgumentParser()
     _p.add_argument('--limit',  type=int, default=0, help='앞에서 N개만 평가')
     _p.add_argument('--sample', type=int, default=0, help='무작위 N쌍 평가')

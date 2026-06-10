@@ -43,7 +43,7 @@ def main():
             text = r['message']['content']
         except Exception as e:
             text = f"Error: {e}"
-        return (predicted_cwe(text), round(time.time()-start, 2))
+        return (predicted_cwe(text), round(time.time()-start, 2), allowed)
 
     _p = _ap.ArgumentParser()
     _p.add_argument('--limit',  type=int, default=0, help='앞에서 N개만 평가')
