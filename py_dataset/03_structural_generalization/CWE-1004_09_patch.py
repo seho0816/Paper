@@ -1,0 +1,13 @@
+class LoginController:
+    def complete(self, response, account_id: str):
+        refresh_token = token_service.issue_refresh(
+            account_id
+        )
+        response.set_cookie(
+            'refresh',
+            refresh_token,
+            secure=True,
+            samesite='Strict',
+            httponly=True,
+        )
+        return response

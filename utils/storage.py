@@ -6,26 +6,52 @@ import os
 import csv
 import datetime
 
-CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s']
+_TEST_DIR_CACHE: str | None = None
+
+
+def _to_relpath(filepath: str) -> str:
+    """파일 경로를 TEST_DIR 기준 상대경로로 변환. basename fallback."""
+    global _TEST_DIR_CACHE
+    if _TEST_DIR_CACHE is None:
+        try:
+            from config import TEST_DIR as _td
+            _TEST_DIR_CACHE = _td
+        except Exception:
+            _TEST_DIR_CACHE = ""
+    try:
+        rel = os.path.relpath(str(filepath), _TEST_DIR_CACHE)
+        if rel.startswith('..'):
+            return os.path.basename(filepath)
+        return rel.replace('\\', '/')
+    except Exception:
+        return os.path.basename(filepath)
+
+
+CSV_FIELDS = ['Model', 'Filename', 'Ground_Truth', 'Prediction', 'Match', 'Time_s', 'Test_Type', 'Hit_K']
 
 
 def make_row(model: str, filename: str,
              gt: list[str], pred: str,
-             result: str, elapsed: float) -> dict:
+             result: str, elapsed: float,
+             test_type: str = "unknown",
+             hit_k: bool | None = None) -> dict:
     return {
         'Model':        model,
-        'Filename':     os.path.basename(filename),
+        'Filename':     _to_relpath(filename),
         'Ground_Truth': "/".join(gt),
         'Prediction':   pred,
         'Match':        'O' if result == 'TP' else 'X',
         'Time_s':       elapsed,
+        'Test_Type':    test_type,
+        'Hit_K':        ('O' if hit_k else 'X') if hit_k is not None else '-',
     }
 
 
 def save_report(result_dir: str, label: str,
                 total: int, correct: int,
                 total_time: float, logs: list[str],
-                m: dict | None = None) -> str:
+                m: dict | None = None,
+                m_type: dict | None = None) -> str:
     os.makedirs(result_dir, exist_ok=True)
     now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     safe_label = label.replace('.', '-').replace(' ', '_')
@@ -42,13 +68,39 @@ def save_report(result_dir: str, label: str,
         f.write(f"Accuracy: {acc:.1f}% | Correct: {correct} | "
                 f"Incorrect: {total - correct} | Avg Time: {avg_t}s\n")
         if m:
-            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}%\n")
+            f.write(f"Precision: {m['Precision']}% | Recall: {m['Recall']}% | F1: {m['F1']}% | Balanced_Recall: {m.get('Balanced_Recall','-')}%\n")
             f.write(f"TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}\n")
-            # FP/FN 세분화 (B안: 오분류는 FP+FN 양쪽 집계)
             fp_p = m.get('FP_patch', '-'); fp_m = m.get('FP_misc', '-')
             fn_s = m.get('FN_miss', '-')
             f.write(f"  FP세분: 패치오탐={fp_p} / 오분류={fp_m}\n")
             f.write(f"  FN세분: 미탐={fn_s} / 오분류={fp_m}\n")
+            unk = m.get('Unknown_Rate','-'); sfpr = m.get('Safe_FPR','-')
+            fnr  = m.get('FNR','-')
+            hitk = m.get('Hit_K_Rate','-')
+            f.write(f"  FNR(미탐율)={fnr}% | UNKNOWN비율={unk}% | safe_boundary FPR={sfpr}%\n")
+            f.write(f"  RAG Hit@K={hitk}% ({m.get('Hit_K_Count',0)}/{m.get('Hit_K_Total',0)}) — 검색DB가 GT CWE를 포함한 비율\n")
+        if m_type:
+            f.write("\n[유형별 성능]\n")
+            f.write(f"  {'유형':<35} {'N':>5} {'Acc%':>6} {'P%':>6} {'R%':>6} {'F1%':>6} {'FNR%':>6} {'FPR%':>6} {'Bal.R%':>7}\n")
+            f.write("  " + "-" * 80 + "\n")
+            for ttype, tm in sorted(m_type.items()):
+                n   = tm.get('Total', 0)
+                acc = tm.get('Accuracy', '-')
+                p   = tm.get('Precision', '-')
+                r   = tm.get('Recall', '-')
+                f1  = tm.get('F1', '-')
+                fnr = tm.get('FNR', '-')
+                br  = tm.get('Balanced_Recall', '-')
+                # FPR은 safe_boundary 유형만 의미있음
+                fpr = tm.get('Safe_FPR', '-') if ttype == 'safe_boundary' else '-'
+                tp  = tm.get('TP', 0); tn = tm.get('TN', 0)
+                fp  = tm.get('FP', 0); fn = tm.get('FN', 0)
+                hitk= tm.get('Hit_K_Rate', '-')
+                f.write(f"  {ttype:<35} {n:>5} {acc:>6} {p:>6} {r:>6} {f1:>6} {fnr:>6} {fpr:>6} {br:>7}\n")
+                f.write(f"  {'':<35} TP={tp} TN={tn} FP={fp} FN={fn}")
+                if hitk != '-':
+                    f.write(f" | Hit@K={hitk}% ({tm.get('Hit_K_Count',0)}/{tm.get('Hit_K_Total',0)})")
+                f.write("\n")
         f.write("\n상세 로그\n" + "-" * 60 + "\n")
         for log in logs:
             f.write(log + "\n")

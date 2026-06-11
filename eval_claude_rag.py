@@ -1,4 +1,20 @@
-"""eval_claude_rag.py — 비교군 ③: Claude + 라인 단위 RAG"""
+"""eval_claude_rag.py — 비교군 ③: claude-haiku-4-5 + 라인 단위 RAG"""
+
+# ── 실행 옵션 ──────────────────────────────────────────────
+# python eval_claude_rag.py                    전체 평가
+# python eval_claude_rag.py --limit 10         앞에서 10개만
+# python eval_claude_rag.py --sample 5         무작위 5쌍
+# python eval_claude_rag.py --resume           중단 후 이어하기
+# python eval_claude_rag.py --folder 00        00_legacy_db_derived만
+# python eval_claude_rag.py --folder 01        01_regression만
+# python eval_claude_rag.py --folder 02        02_semantic_generalization만
+# python eval_claude_rag.py --folder 03        03_structural_generalization만
+# python eval_claude_rag.py --folder 04        04_safe_boundary만
+# python eval_claude_rag.py --folder 05        05_external_independent만
+# python eval_claude_rag.py --folder 01 --sample 10   조합 가능
+# ────────────────────────────────────────────────────────────
+
+import argparse as _ap
 import os, time
 import anthropic
 from dotenv import load_dotenv
@@ -7,6 +23,7 @@ from rag_engine import SimpleRAGEngine
 from utils.scoring import predicted_cwe
 from utils.prompts import build_rag, build_patch
 from utils.loop import run
+from utils.retry import raise_if_rate_limit
 
 load_dotenv()
 _key = os.getenv("CLAUDE_API_KEY")
@@ -27,26 +44,26 @@ def main():
         start = time.time()
         try:
             msg = _client.messages.create(
-                model=CLAUDE_MODEL, max_tokens=1024, temperature=0.0,
+                model=CLAUDE_MODEL, max_tokens=2048, temperature=0.0,
                 messages=[{"role": "user", "content": prompt}]
             )
-            text = msg.content[0].text
+            text = msg.content[0].text if msg.content else ""
         except Exception as e:
+            print(f"\n    ⚠️  API 오류 [eval_claude_rag.py]: {e}", flush=True)
+            raise_if_rate_limit(e)
             text = f"Error: {e}"
-        return (predicted_cwe(text), round(time.time()-start, 2))
-
-    # ── 실행 옵션 ──────────────────────────────────────────────
-    # 전체 평가:           python eval_claude_rag.py
-    # 앞에서 N개만:        python eval_claude_rag.py --limit 10
-    # 무작위 N쌍 샘플:     python eval_claude_rag.py --sample 5
-    # ────────────────────────────────────────────────────────────
-    import argparse as _ap
-    _p = _ap.ArgumentParser(description="claude_rag 평가")
+        return (predicted_cwe(text), round(time.time()-start, 2), allowed)
+    _p = _ap.ArgumentParser()
     _p.add_argument('--limit',  type=int, default=0, help='앞에서 N개만 평가')
     _p.add_argument('--sample', type=int, default=0, help='무작위 N쌍 평가')
+    _p.add_argument('--resume', action='store_true', help='중단된 평가 이어하기')
+    _p.add_argument('--folder', type=str, default='',
+                    help='특정 폴더만 평가 (예: 01, 02_semantic, safe_boundary)')
     _args = _p.parse_args()
     run(MODEL_CLAUDE_SIMPLE_RAG, evaluate, "claude_rag",
-        limit=_args.limit, sample=_args.sample)
+        limit=_args.limit, sample=_args.sample,
+        resume=_args.resume,
+        folder_filter=_args.folder)
 
 if __name__ == "__main__":
     main()

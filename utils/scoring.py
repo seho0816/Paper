@@ -67,22 +67,49 @@ def ground_truth(filename: str) -> list[str]:
 
 def predicted_cwe(result_text) -> str:
     """
-    모델 응답 → 예측 CWE.
-    마지막 <CWE>...</CWE> 태그 기준.
-    None → "None", 숫자 → "CWE-XXX", 태그 없음 → "UNKNOWN"
+    모델 응답 → 예측 CWE. 다단계 파싱으로 소형 모델 UNKNOWN 방지.
+
+    우선순위:
+    1. <CWE>...</CWE> 태그 (표준 형식)
+    2. Final CWE: CWE-XXX 패턴
+    3. 텍스트 전체에서 CWE-XXX 패턴 마지막 등장
+    4. 'none'/'no vulnerability'/'safe' 키워드 → None
+    5. 위 모두 해당 없음 → UNKNOWN
     """
     if result_text is None:
         return "UNKNOWN"
-    raw = str(result_text)
-    matches = re.findall(r'<CWE>\s*(.*?)\s*</CWE>',
-                         result_text, re.IGNORECASE | re.DOTALL)
-    if not matches:
-        return "UNKNOWN"
-    raw = matches[-1].strip()
-    if raw.lower() == 'none':
+    text = str(result_text).strip()
+
+    # 1. <CWE> 태그 (가장 신뢰)
+    matches = re.findall(r'<CWE>\s*(.*?)\s*</CWE>', text, re.IGNORECASE | re.DOTALL)
+    if matches:
+        raw = matches[-1].strip()
+        if raw.lower() in ('none', ''):
+            return "None"
+        m = re.search(r'(\d{1,4})', raw)
+        if m:
+            return f"CWE-{m.group(1)}"
+
+    # 2. "Final CWE: CWE-XXX" 패턴
+    m2 = re.search(r'[Ff]inal\s+CWE[:\s]+(?:CWE-?)?(\d{1,4})', text)
+    if m2:
+        return f"CWE-{m2.group(1)}"
+
+    # 3. "Final CWE: None" 패턴
+    if re.search(r'[Ff]inal\s+CWE[:\s]+[Nn]one', text):
         return "None"
-    m = re.search(r'(\d{1,4})', raw.strip())
-    return f"CWE-{m.group(1)}" if m else "UNKNOWN"
+
+    # 4. 텍스트 전체에서 CWE-XXX 마지막 등장
+    all_cwes = re.findall(r'CWE-?(\d{1,4})', text, re.IGNORECASE)
+    if all_cwes:
+        return f"CWE-{all_cwes[-1]}"
+
+    # 5. 명시적 None 표현
+    lower = text.lower()
+    if any(kw in lower for kw in ('no vulnerability', 'not vulnerable', 'no cwe', 'safe code', 'none')):
+        return "None"
+
+    return "UNKNOWN"
 
 
 def score(pred: str, gt: list[str]) -> str:
