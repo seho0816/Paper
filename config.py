@@ -9,23 +9,23 @@ MODEL_BANDIT           = "Bandit"
 
 MODEL_QWEN_RAW         = "qwen2.5-coder_raw"
 MODEL_LLAMA_RAW        = "llama3.2_raw"
-MODEL_GEMINI_RAW       = "gemini-2.5-pro_raw"
-MODEL_CLAUDE_RAW       = "claude-sonnet-4-5_raw"
+MODEL_GEMINI_RAW       = "gemini-2.5-flash_raw"
+MODEL_CLAUDE_RAW       = "claude-haiku-4-5_raw"
 MODEL_GROK_RAW         = "grok-3-mini_raw"
 
 MODEL_QWEN_SIMPLE_RAG  = "qwen2.5-coder_simple_rag"
 MODEL_LLAMA_SIMPLE_RAG = "llama3.2_simple_rag"
-MODEL_GEMINI_SIMPLE_RAG= "gemini-2.5-pro_simple_rag"
-MODEL_CLAUDE_SIMPLE_RAG= "claude-sonnet-4-5_simple_rag"
+MODEL_GEMINI_SIMPLE_RAG= "gemini-2.5-flash_simple_rag"
+MODEL_CLAUDE_SIMPLE_RAG= "claude-haiku-4-5_simple_rag"
 MODEL_GROK_SIMPLE_RAG  = "grok-3-mini_simple_rag"
 
 MODEL_QWEN_RAG_TS      = "qwen2.5-coder_rag_ts"
 MODEL_QWEN_RAG         = MODEL_QWEN_RAG_TS
 MODEL_LLAMA_RAG_TS     = "llama3.2_rag_ts"
 MODEL_LLAMA_RAG        = MODEL_LLAMA_RAG_TS
-MODEL_GEMINI_RAG_TS    = "gemini-2.5-pro_rag_ts"
+MODEL_GEMINI_RAG_TS    = "gemini-2.5-flash_rag_ts"
 MODEL_GEMINI_RAG       = MODEL_GEMINI_RAG_TS
-MODEL_CLAUDE_RAG_TS    = "claude-sonnet-4-5_rag_ts"
+MODEL_CLAUDE_RAG_TS    = "claude-haiku-4-5_rag_ts"
 MODEL_CLAUDE_RAG       = MODEL_CLAUDE_RAG_TS
 MODEL_GROK_RAG_TS      = "grok-3-mini_rag_ts"
 MODEL_GROK_RAG         = MODEL_GROK_RAG_TS
@@ -33,8 +33,8 @@ MODEL_GROK_RAG         = MODEL_GROK_RAG_TS
 # ── 실제 모델 ID ──────────────────────────────────────────────
 OLLAMA_QWEN  = "qwen2.5-coder"
 OLLAMA_LLAMA = "llama3.2"
-GEMINI_MODEL = "gemini-2.5-pro"
-CLAUDE_MODEL = "claude-sonnet-4-5"
+GEMINI_MODEL = "gemini-2.5-flash"
+CLAUDE_MODEL = "claude-haiku-4-5"
 GROK_MODEL   = "grok-3-mini"
 
 # ── 경로 ─────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ MAX_RETRIEVAL_K            = 7
 MITRE_TOP_K_PER_CHUNK      = 2
 
 # ── Simple RAG 청킹 파라미터 ──────────────────────────────────
-SIMPLE_RAG_CHUNK_LINES = 20
+SIMPLE_RAG_CHUNK_LINES = 25
 
 # ── Ollama 추론 옵션 ──────────────────────────────────────────
 OLLAMA_OPTIONS = {

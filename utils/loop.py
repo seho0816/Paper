@@ -30,7 +30,7 @@ from utils.scoring import ground_truth, score
 from utils.metrics import compute, compute_by_type
 from utils.storage import make_row, save_report, save_csv
 
-MAX_EVAL_WORKERS = 20   # 동시 평가 스레드 수
+MAX_EVAL_WORKERS = 30   # 동시 평가 스레드 수
 
 
 def _extract_test_type(filepath: str) -> str:
@@ -228,15 +228,21 @@ def run(model_label: str, evaluate_fn: Callable,
                     verdict = score(pred, gt)
                     ox      = "O" if verdict == "TP" else "X"
                     # Hit@K: 검색된 CWE 중 GT 포함 여부
+                    # safe_boundary(GT=None)와 patch 파일은 측정 대상 아님
                     retrieved = res.get("retrieved_cwes")
                     hit_k = None
-                    if retrieved and not is_patch:
+                    if retrieved and not is_patch and gt != ["None"]:
                         gt_cwe = gt[0] if gt else ""
                         hit_k = gt_cwe in retrieved
 
                     if verdict == "TP":
                         correct += 1
-                        tag = "TN(패치->None)" if is_patch else "TP"
+                        if is_patch:
+                            tag = "TN(패치->None)"
+                        elif gt == ["None"]:  # safe_boundary
+                            tag = "TN(안전->None)"
+                        else:
+                            tag = "TP"
                         print(f"  [{i:03d}/{total}] {fname} ... [OK] {ox} [{tag}] | {test_type} | {elapsed:.1f}s", flush=True)
                     else:
                         if is_patch:  tag = "FP(패치->CWE)"
@@ -284,6 +290,13 @@ def run(model_label: str, evaluate_fn: Callable,
     print(f"  P:{m['Precision']}% R:{m['Recall']}% F1:{m['F1']}")
     if m_type:
         print("  유형별 성능:")
+        print(f"    {'유형':<35} {'N':>5} {'P%':>6} {'R%':>6} {'F1%':>6} {'FNR%':>6} {'FPR%':>6} {'Bal.R%':>7}")
         for ttype, tm in sorted(m_type.items()):
-            print(f"    {ttype:<35} P:{tm['Precision']}% R:{tm['Recall']}% F1:{tm['F1']}")
+            fnr  = tm.get('FNR', '-')
+            br   = tm.get('Balanced_Recall', '-')
+            fpr  = tm.get('Safe_FPR', '-') if ttype == 'safe_boundary' else '-'
+            hitk = tm.get('Hit_K_Rate', '-')
+            n    = tm.get('Total', 0)
+            hitk_str = f" Hit@K={hitk}%" if hitk != '-' else ""
+            print(f"    {ttype:<35} {n:>5} {tm['Precision']:>6}% {tm['Recall']:>6}% {tm['F1']:>6}% {fnr:>6}% {fpr:>6} {br:>7}%{hitk_str}")
     print(f"  리포트: {rpt}\n  CSV:    {csv_}")

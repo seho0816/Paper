@@ -46,6 +46,23 @@ _CWE_KO = """
    - 단순히 매개변수 이름이 user_id, order_id라는 이유만으로 단정하지 마세요.
 9. 최종 출력에는 반드시 최종 CWE, 관련/상위 CWE, 최종 CWE로 판단한 이유를 분리해서 작성하세요.
 10. 보안 개선 방법이 특정 통제를 포함한다는 이유만으로 최종 CWE를 변경하지 마세요.
+
+
+[환각 방지 규칙 — 반드시 준수]
+6. 코드에 명시적으로 드러난 사실만 근거로 판단하세요.
+   다음은 코드에서 확인되지 않는 한 추정하지 마세요:
+   - 웹훅 또는 외부 콜백 환경
+   - 멀티테넌트 환경
+   - 동시 요청 상황
+   - 인증 사용자 컨텍스트
+   - 추상화된 함수(complete, refund, approve)의 비멱등 부작용
+   - repository 메서드 내부의 SQL 구현
+7. 함수명·변수명만으로 내부 동작을 추정하지 마세요.
+   refund, approve라는 이름이 실제 결제·환불 로직을 확정하지 않습니다.
+8. '웹훅이라면', '재시도된다면', '외부 서비스를 호출할 수 있다면' 같은
+   가정이 필요하면 None을 반환하세요.
+9. 보안 통제 부재만으로는 충분하지 않습니다.
+   위험 동작 자체가 코드에 명시적으로 존재해야 합니다.
 """.strip()
 
 _OUT_KO = """
@@ -87,8 +104,26 @@ _CWE_EN = """
 1. Prioritize the CWE most directly matching the code pattern.
 2. Do not auto-prefer child CWEs; only select them when the root cause clearly fits.
 3. Base the final CWE on what went wrong, not how it was fixed.
-4. List each independent vulnerability separately.
+4. Only report a CWE when the vulnerable pattern is explicitly visible in the code.
 5. Do not infer attacker control from variable names alone; verify from actual code flow.
+
+[Anti-Hallucination Rules — strictly follow]
+6. Base your judgment ONLY on facts explicitly observable in the code.
+   Do NOT assume or infer any of the following unless confirmed in the code:
+   - That this runs as a webhook or external callback
+   - That the environment is multi-tenant
+   - That requests arrive concurrently
+   - That an authenticated user context exists
+   - That an abstracted function (complete, refund, approve, charge) has non-idempotent side effects
+   - That a repository method executes a specific SQL query internally
+7. Do not use function or variable names alone as evidence.
+   A function named 'refund' or 'approve' does NOT confirm that actual payment/refund logic executes.
+   Require the actual implementation or explicit API calls to be visible in the code.
+8. If explaining why a vulnerability exists requires phrases like
+   'if this were a webhook', 'could be multi-tenant', 'might retry',
+   'possibly calls external service' — that is NOT a valid match. Report None.
+9. Absence of a security control (e.g., no idempotency key, no auth check) alone
+   is NOT sufficient. The risky operation itself must be explicitly present in the code.
 """.strip()
 
 _OUT_EN = """

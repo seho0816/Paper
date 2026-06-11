@@ -81,8 +81,26 @@ def save_report(result_dir: str, label: str,
             f.write(f"  RAG Hit@K={hitk}% ({m.get('Hit_K_Count',0)}/{m.get('Hit_K_Total',0)}) — 검색DB가 GT CWE를 포함한 비율\n")
         if m_type:
             f.write("\n[유형별 성능]\n")
+            f.write(f"  {'유형':<35} {'N':>5} {'Acc%':>6} {'P%':>6} {'R%':>6} {'F1%':>6} {'FNR%':>6} {'FPR%':>6} {'Bal.R%':>7}\n")
+            f.write("  " + "-" * 80 + "\n")
             for ttype, tm in sorted(m_type.items()):
-                f.write(f"  {ttype:<35} P:{tm['Precision']}% R:{tm['Recall']}% F1:{tm['F1']}%\n")
+                n   = tm.get('Total', 0)
+                acc = tm.get('Accuracy', '-')
+                p   = tm.get('Precision', '-')
+                r   = tm.get('Recall', '-')
+                f1  = tm.get('F1', '-')
+                fnr = tm.get('FNR', '-')
+                br  = tm.get('Balanced_Recall', '-')
+                # FPR은 safe_boundary 유형만 의미있음
+                fpr = tm.get('Safe_FPR', '-') if ttype == 'safe_boundary' else '-'
+                tp  = tm.get('TP', 0); tn = tm.get('TN', 0)
+                fp  = tm.get('FP', 0); fn = tm.get('FN', 0)
+                hitk= tm.get('Hit_K_Rate', '-')
+                f.write(f"  {ttype:<35} {n:>5} {acc:>6} {p:>6} {r:>6} {f1:>6} {fnr:>6} {fpr:>6} {br:>7}\n")
+                f.write(f"  {'':<35} TP={tp} TN={tn} FP={fp} FN={fn}")
+                if hitk != '-':
+                    f.write(f" | Hit@K={hitk}% ({tm.get('Hit_K_Count',0)}/{tm.get('Hit_K_Total',0)})")
+                f.write("\n")
         f.write("\n상세 로그\n" + "-" * 60 + "\n")
         for log in logs:
             f.write(log + "\n")

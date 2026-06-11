@@ -1,4 +1,4 @@
-"""eval_claude_rag_ts.py — 제안 모델 ④: Claude + Tree-sitter RAG + MITRE"""
+"""eval_claude_rag_ts.py — 제안 모델 ④: claude-haiku-4-5 + Tree-sitter RAG + MITRE"""
 
 # ── 실행 옵션 ──────────────────────────────────────────────
 # python eval_claude_rag_ts.py                    전체 평가

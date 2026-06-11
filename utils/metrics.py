@@ -79,9 +79,17 @@ def compute(csv_rows: list[dict]) -> dict:
     # Balanced Recall: vulnerable recall + patch recall 평균 (Vul-RAG와 동일 기준)
     vul_total   = tp + fn
     patch_total = tn + fp_patch
-    vul_recall   = tp / vul_total   if vul_total   > 0 else 0
-    patch_recall = tn / patch_total if patch_total > 0 else 0
-    balanced_recall = (vul_recall + patch_recall) / 2
+    vul_recall   = tp / vul_total   if vul_total   > 0 else None
+    patch_recall = tn / patch_total if patch_total > 0 else None
+    # 한쪽이 0이면 평균 의미 없음 → 있는 쪽만 사용 OR '-'
+    if vul_recall is None and patch_recall is None:
+        balanced_recall = None
+    elif vul_recall is None:
+        balanced_recall = None   # safe_boundary 등 취약파일 없는 유형 → '-'
+    elif patch_recall is None:
+        balanced_recall = None
+    else:
+        balanced_recall = (vul_recall + patch_recall) / 2
 
     # UNKNOWN/SKIPPED 비율 (모델 안정성)
     unk_count = sum(1 for row in csv_rows
@@ -116,10 +124,11 @@ def compute(csv_rows: list[dict]) -> dict:
         'Precision':      round(precision      * 100, 1),
         'Recall':         round(recall         * 100, 1),
         'F1':             round(f1             * 100, 1),
-        'Balanced_Recall':round(balanced_recall* 100, 1),
+        'Balanced_Recall':round(balanced_recall* 100, 1) if balanced_recall is not None else '-',
         'Unknown_Rate':   round(unk_rate        * 100, 1),
         'Unknown_Count':  unk_count,
-        'FNR':            round((1 - recall) * 100, 1),  # 미탐율 = 1 - Recall
+        # FNR: 취약 파일이 없는 유형(safe_boundary 등)은 정의 불가 → '-'
+        'FNR': round((1 - recall) * 100, 1) if (tp + fn) > 0 else '-',
         'Hit_K_Rate':     round(hit_k_rate * 100, 1) if hit_k_rate is not None else '-',
         'Hit_K_Count':    hit_k_count,
         'Hit_K_Total':    hit_k_total,

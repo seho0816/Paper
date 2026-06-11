@@ -1,4 +1,20 @@
 """eval_bandit.py — 비교군 ①: Bandit (SAST)"""
+
+# ── 실행 옵션 ──────────────────────────────────────────────
+# python eval_bandit.py                    전체 평가
+# python eval_bandit.py --limit 10         앞에서 10개만
+# python eval_bandit.py --sample 5         무작위 5쌍
+# python eval_bandit.py --resume           중단 후 이어하기
+# python eval_bandit.py --folder 00        00_legacy_db_derived만
+# python eval_bandit.py --folder 01        01_regression만
+# python eval_bandit.py --folder 02        02_semantic_generalization만
+# python eval_bandit.py --folder 03        03_structural_generalization만
+# python eval_bandit.py --folder 04        04_safe_boundary만
+# python eval_bandit.py --folder 05        05_external_independent만
+# python eval_bandit.py --folder 01 --sample 10   조합 가능
+# ────────────────────────────────────────────────────────────
+
+import argparse as _ap
 import os, re, time, json, subprocess
 import glob as _bg
 from config import TEST_DIR, RESULT_DIR, MODEL_BANDIT
@@ -30,52 +46,44 @@ def _run(path):
     return found, round(time.time() - start, 2)
 
 def main():
-    print(f"=== [{LABEL}] 평가 시작 ===\n")
-
-    # ── [수정됨] 1. 인자(args) 파싱을 가장 먼저 수행 ──
-    import argparse as _ap
+    # ── 1. 인자 파싱 ────────────────────────────────────────
     _p = _ap.ArgumentParser()
     _p.add_argument('--limit',  type=int, default=0)
     _p.add_argument('--sample', type=int, default=0)
-    _p.add_argument('--resume', action='store_true',
-                    help='중단된 평가 이어하기')
+    _p.add_argument('--resume', action='store_true', help='중단된 평가 이어하기')
     _p.add_argument('--folder', type=str, default='',
-                    help='특정 폴더만 평가 (예: 01, 02_semantic, safe_boundary)')
+                    help='특정 폴더만 평가 (예: 01, 02, 04)')
     _args = _p.parse_args()
 
-    # ── 2. 파일 목록: 전체 경로 기준 수집 ──
+    print(f"=== [{LABEL}] 평가 시작 ===\n")
+
+    # ── 2. 파일 목록: 완전한 쌍만 ────────────────────────────
     all_paths = sorted(
         p for p in _bg.glob(os.path.join(TEST_DIR, "**", "*.py"), recursive=True)
         if not os.path.basename(p).startswith("d.")
     )
 
-    # ── 3. 완전한 쌍(test+patch 모두 존재)만 포함 ──
     complete_pairs: set = set()
     for p in all_paths:
         fname  = os.path.basename(p)
         folder = os.path.dirname(p)
         if re.search(r"test\d*\.py$", fname, re.I):
-            gt = ground_truth(p) # 경로(fpath)를 넘겨 04번인지 확인하도록 통일
-            if gt == ["None"]:
-                # 안전 코드는 패치 파일 쌍 불필요
+            patch_name = re.sub(r"test(\d*)\.py$", r"patch\1.py", fname, re.I)
+            patch_path = os.path.join(folder, patch_name)
+            if os.path.exists(patch_path):
                 complete_pairs.add(p)
-            else:
-                patch_name = re.sub(r"test(\d*)\.py$", r"patch\1.py", fname, re.I)
-                patch_path = os.path.join(folder, patch_name)
-                if os.path.exists(patch_path):
-                    complete_pairs.add(p)
-                    complete_pairs.add(patch_path)
+                complete_pairs.add(patch_path)
 
     files = [p for p in all_paths if p in complete_pairs]
 
-    # ── 4. 폴더 필터 적용 (이제 _args가 있으므로 안전함!) ──
+    # ── 3. 폴더 필터 ────────────────────────────────────────
     if _args.folder:
         ff = _args.folder.lower()
         files = [p for p in files
-                 if ff in os.path.basename(os.path.dirname(p)).lower() or os.path.basename(os.path.dirname(p)).lower().startswith(ff)]
+                 if ff in os.path.basename(os.path.dirname(p)).lower()
+                 or os.path.basename(os.path.dirname(p)).lower().startswith(ff)]
         print(f"  [folder={_args.folder}] {len(files)}개 파일 필터")
 
-    # ── 5. 샘플링 로직 ──
     import random as _rnd
     if _args.sample > 0:
         test_fs = [f for f in files if re.search(r"test\d*\.py$", os.path.basename(f), re.I)]
@@ -90,8 +98,7 @@ def main():
     if not files:
         print("파일 없음"); return
 
-    # ── 6. 체크포인트 로드 (resume) ──
-    import json as _js
+    # ── 4. Resume 체크포인트 ─────────────────────────────────
     from utils.loop import _ckpt_path, _load_ckpt, _save_ckpt
     done_map = _load_ckpt("bandit") if _args.resume else {}
     if done_map:
@@ -99,31 +106,34 @@ def main():
 
     total = len(files); correct = 0; total_time = 0.0
     logs = []; csv_data = []
-    
-    # ── 7. 완료된 결과 복원 ──
     for r in done_map.values():
         csv_data.append(r['row']); logs.append(r['log'])
         if r['verdict'] == 'TP': correct += 1
         total_time += r['elapsed']
     print(f"총 {total}개 파일 평가\n")
 
-    # ── 8. 평가 메인 루프 ──
+    # ── 5. 평가 루프 ─────────────────────────────────────────
     remaining = [f for f in files if f not in done_map]
     for idx, fpath in enumerate(remaining, start=len(done_map)+1):
         fname     = os.path.basename(fpath)
         test_type = _extract_test_type(fpath)
 
-        # 블라인드 평가 (경로를 통해 04번 폴더인지, 파일명을 통해 패치인지 식별)
-        gt = ground_truth(fpath)
-        is_patch = bool(re.search(r'patch\d*\.py$', fname, re.I))
+        # GT 결정: 04_safe_boundary → 무조건 None (블라인드 평가)
+        if "04_safe_boundary" in fpath.replace("\\", "/"):
+            gt       = ["None"]
+            is_patch = False
+        else:
+            gt       = ground_truth(fname)
+            is_patch = (gt == ["None"])
         gt_s = "/".join(gt)
         print(f"  [{idx:03d}/{total}] {fname}", end=" ... ", flush=True)
 
         preds, elapsed = _run(fpath)
 
+        # 채점
         if is_patch:
             pred_s  = "/".join(preds) if preds else "None"
-            verdict = score(pred_s, gt)   # preds 없으면 TN, 있으면 FP
+            verdict = score(pred_s, gt)
         else:
             matched = [p for p in preds if p in gt]
             if matched:
@@ -150,6 +160,7 @@ def main():
             done_map[fpath] = {'row': row, 'log': logs[-1], 'verdict': verdict, 'elapsed': elapsed}
             _save_ckpt('bandit', done_map)
 
+    # ── 6. 결과 저장 ─────────────────────────────────────────
     m      = compute(csv_data)
     m_type = compute_by_type(csv_data)
     rpt    = save_report(RESULT_DIR, "bandit", total, correct, total_time, logs, m, m_type)
@@ -158,11 +169,17 @@ def main():
     acc = correct / total * 100 if total else 0
     print(f"\n완료 | Accuracy:{acc:.1f}% ({correct}/{total})")
     print(f"  TP:{m['TP']} TN:{m['TN']} FP:{m['FP']} FN:{m['FN']}")
-    print(f"  P:{m['Precision']}% R:{m['Recall']}% F1:{m['F1']}")
+    print(f"  P:{m['Precision']}% R:{m['Recall']}% F1:{m['F1']}% | Balanced_Recall:{m.get('Balanced_Recall','-')}%")
+    print(f"  FNR:{m.get('FNR','-')}% | UNKNOWN:{m.get('Unknown_Rate','-')}% | safe_FPR:{m.get('Safe_FPR','-')}%")
     if m_type:
         print("  유형별 성능:")
+        print(f"    {'유형':<35} {'N':>5} {'P%':>6} {'R%':>6} {'F1%':>6} {'FNR%':>6} {'FPR%':>6} {'Bal.R%':>7}")
         for ttype, tm in sorted(m_type.items()):
-            print(f"    {ttype:<35} P:{tm['Precision']}% R:{tm['Recall']}% F1:{tm['F1']}")
+            fnr = tm.get('FNR', '-')
+            br  = tm.get('Balanced_Recall', '-')
+            fpr = tm.get('Safe_FPR', '-') if ttype == 'safe_boundary' else '-'
+            n   = tm.get('Total', 0)
+            print(f"    {ttype:<35} {n:>5} {tm['Precision']:>6}% {tm['Recall']:>6}% {tm['F1']:>6}% {fnr:>6}% {fpr:>6} {br:>7}%")
     ckpt = _ckpt_path('bandit')
     if os.path.exists(ckpt) and len(csv_data) == total:
         os.remove(ckpt)

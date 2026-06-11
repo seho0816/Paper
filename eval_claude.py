@@ -1,4 +1,4 @@
-"""eval_claude.py — 비교군 ②: Claude, 순수 LLM"""
+"""eval_claude.py — 비교군 ②: claude-haiku-4-5, 순수 LLM"""
 
 # ── 실행 옵션 ──────────────────────────────────────────────
 # python eval_claude.py                    전체 평가

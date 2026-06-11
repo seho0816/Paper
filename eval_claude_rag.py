@@ -1,4 +1,4 @@
-"""eval_claude_rag.py — 비교군 ③: Claude + 라인 단위 RAG"""
+"""eval_claude_rag.py — 비교군 ③: claude-haiku-4-5 + 라인 단위 RAG"""
 
 # ── 실행 옵션 ──────────────────────────────────────────────
 # python eval_claude_rag.py                    전체 평가
